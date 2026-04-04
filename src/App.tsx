@@ -5,10 +5,8 @@ import {
   Activity,
   CalendarClock,
   ChevronDown,
-  Copy,
   FileDown,
   Layers,
-  Settings2,
   MessageSquare,
   Network,
   Radio,
@@ -95,6 +93,7 @@ import {
   type SessionTranscript,
 } from "@/lib/transcript";
 import { loadUiPrefs, saveUiPrefs, type FeedTab } from "@/lib/ui-prefs";
+import { TitleBar } from "@/components/TitleBar";
 
 import "./App.css";
 
@@ -179,6 +178,7 @@ export default function App() {
   const [feedTab, setFeedTab] = useState<FeedTab>(uiPrefs0.feedTab);
   const [inspectorTab, setInspectorTab] = useState(uiPrefs0.inspectorTab);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [inspectorOpen, setInspectorOpen] = useState(false);
   const [configSnapshot, setConfigSnapshot] = useState<unknown | null>(null);
   const [healthReport, setHealthReport] = useState<{
     checked_at_ms: number;
@@ -572,104 +572,35 @@ export default function App() {
   };
 
   return (
-    <div className="vault-bg flex min-h-svh flex-col">
-      <header className="vault-enter sticky top-0 z-40 border-b border-border/40 bg-card/75 px-4 py-3 backdrop-blur-xl supports-[backdrop-filter]:bg-card/55">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex min-w-0 items-start gap-3 sm:items-center">
-            <div
-              className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-primary/35 bg-gradient-to-br from-primary/15 to-primary/5 text-primary shadow-[inset_0_1px_0_oklch(1_0_0/8%)]"
-              aria-hidden
-            >
-              <Sparkles className="size-5 opacity-90" />
-            </div>
-            <div className="min-w-0 space-y-0.5">
-              <div className="flex flex-wrap items-baseline gap-2">
-                <h1 className="font-mono text-base font-semibold tracking-[0.22em] text-primary">
-                  Z-CLAW
-                </h1>
-                <span className="rounded-md border border-border/40 bg-muted/25 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                  Agent 控制台
-                </span>
-              </div>
-              <p className="max-w-xl text-xs leading-snug text-muted-foreground">
-                本地内核 · 对话与事件流 · 工具与策略同屏
-              </p>
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-            <Badge
-              variant="outline"
-              className={cn(
-                "gap-1.5 border font-mono text-[10px] tracking-wide uppercase",
-                kernelReady
-                  ? "border-emerald-500/40 bg-emerald-950/30 text-emerald-100"
-                  : "border-border/60 text-muted-foreground",
-              )}
-            >
-              <Radio
-                className={cn(
-                  "size-3",
-                  kernelReady ? "text-emerald-400" : "animate-pulse",
-                )}
-              />
-              {kernelReady ? "kernel online" : "connecting"}
-            </Badge>
-            <div className="flex min-w-0 max-w-[min(100vw-2rem,340px)] items-center gap-1 rounded-lg border border-border/35 bg-background/40 p-0.5 pl-2">
-              <Badge
-                variant="outline"
-                className="min-w-0 flex-1 truncate border-transparent bg-transparent font-mono text-[10px] text-muted-foreground shadow-none"
-              >
-                {sessionId ?? "未选会话"}
-              </Badge>
-              <Button
-                type="button"
-                size="icon-sm"
-                variant="ghost"
-                className="shrink-0 text-muted-foreground hover:text-foreground"
-                disabled={!sessionId}
-                onClick={() => void copySessionId()}
-                title="复制会话 ID"
-              >
-                <Copy className="size-3.5" />
-              </Button>
-              <Button
-                type="button"
-                size="icon-sm"
-                variant="secondary"
-                className="shrink-0"
-                onClick={() => setSettingsOpen(true)}
-                title="设置与配置快照"
-              >
-                <Settings2 className="size-3.5" />
-              </Button>
-            </div>
-          </div>
-        </div>
-        <div
-          className="vault-accent-line mt-3 h-px w-20 rounded-full bg-primary/55"
-          aria-hidden
-        />
-      </header>
+    <div className="vault-bg flex h-dvh max-h-dvh flex-col overflow-hidden">
+      <TitleBar
+        kernelReady={kernelReady}
+        sessionId={sessionId}
+        onCopySessionId={() => void copySessionId()}
+        onOpenSettings={() => setSettingsOpen(true)}
+        onOpenInspector={() => setInspectorOpen(true)}
+      />
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 p-3 sm:p-4 lg:grid-cols-[minmax(220px,260px)_minmax(0,1fr)_minmax(300px,400px)] lg:gap-4">
+      <div className="min-h-0 flex-1 overflow-hidden px-3 pb-3 pt-2 sm:px-4 sm:pb-4 sm:pt-3">
+        <div className="grid h-full min-h-0 grid-cols-1 gap-3 overflow-y-auto overscroll-contain lg:grid-cols-[minmax(232px,272px)_minmax(0,1fr)] lg:grid-rows-1 lg:gap-4 lg:overflow-hidden">
         {/* 左：会话与快捷指令 */}
         <Card
           size="sm"
-          className="vault-enter-delay-1 panel-surface flex min-h-0 flex-col border-border/35 bg-card/55 shadow-none ring-1 ring-primary/8"
+          className="vault-enter-delay-1 app-panel flex h-full min-h-0 flex-col overflow-hidden rounded-xl shadow-none ring-0"
         >
-          <CardHeader className="border-b border-border/25 pb-3">
-            <CardTitle className="flex items-center gap-2 text-sm font-semibold tracking-tight">
-              <span className="flex size-7 items-center justify-center rounded-lg bg-primary/12 text-primary">
+          <CardHeader className="border-b border-border/35 pb-3">
+            <CardTitle className="flex items-center gap-2 text-sm font-semibold tracking-tight text-foreground">
+              <span className="flex size-7 items-center justify-center rounded-md bg-primary/12 text-primary">
                 <Layers className="size-4" />
               </span>
               会话
             </CardTitle>
-            <CardDescription className="text-[11px] leading-relaxed">
+            <CardDescription className="text-[11px] leading-relaxed text-muted-foreground/90">
               从本地 SQLite 载入历史；发送消息前请先选定会话。
             </CardDescription>
           </CardHeader>
-          <CardContent className="flex flex-1 flex-col gap-3 pt-3">
-            <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-3 lg:grid-cols-1">
+          <CardContent className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden pt-3">
+            <div className="grid shrink-0 grid-cols-1 gap-1.5 sm:grid-cols-3 lg:grid-cols-1">
               <Button
                 size="sm"
                 className="justify-center gap-2 text-xs sm:justify-start"
@@ -698,9 +629,9 @@ export default function App() {
                 同步历史
               </Button>
             </div>
-            <Separator className="bg-border/35" />
-            <div className="space-y-1.5">
-              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            <Separator className="bg-border/30" />
+            <div className="shrink-0 space-y-1.5">
+              <p className="text-[11px] font-medium text-muted-foreground">
                 重命名当前会话
               </p>
               <div className="flex gap-1.5">
@@ -734,15 +665,15 @@ export default function App() {
                 </Button>
               </div>
             </div>
-            <Separator className="bg-border/35" />
-            <div className="min-h-0 flex-1 space-y-1">
-              <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            <Separator className="shrink-0 bg-border/30" />
+            <div className="flex min-h-0 flex-1 flex-col space-y-1">
+              <p className="mb-1.5 shrink-0 text-[11px] font-medium text-muted-foreground">
                 会话列表
               </p>
-              <ScrollArea className="h-44 lg:h-[min(52vh,320px)]">
+              <ScrollArea className="min-h-0 flex-1">
                 <div className="flex flex-col gap-1.5 pr-3">
                   {sessions.length === 0 ? (
-                    <p className="rounded-lg border border-dashed border-border/40 bg-muted/10 px-3 py-6 text-center text-[11px] text-muted-foreground">
+                    <p className="rounded-lg border border-dashed border-border/35 bg-muted/15 px-3 py-6 text-center text-[11px] text-muted-foreground">
                       暂无会话，可先点「刷新列表」。
                     </p>
                   ) : (
@@ -752,8 +683,8 @@ export default function App() {
                         className={cn(
                           "flex items-stretch gap-0.5 rounded-lg border transition-all",
                           sessionId === s.id
-                            ? "border-primary/45 bg-primary/[0.12] shadow-[inset_3px_0_0_0_var(--primary)]"
-                            : "border-border/30 bg-muted/10 hover:border-border/50 hover:bg-muted/25",
+                            ? "border-primary/35 bg-primary/[0.08] shadow-[inset_3px_0_0_0_var(--primary)]"
+                            : "border-border/30 bg-muted/15 hover:border-border/45 hover:bg-muted/30",
                         )}
                       >
                         <button
@@ -789,20 +720,20 @@ export default function App() {
 
         {/* 中：事件流 + 撰写 */}
         <Card
-          className="vault-enter-delay-2 panel-surface flex min-h-0 flex-col border-border/35 bg-card/65 shadow-none ring-1 ring-primary/8"
+          className="vault-enter-delay-2 app-panel flex h-full min-h-0 flex-col overflow-hidden rounded-xl shadow-none ring-0"
         >
-          <CardHeader className="shrink-0 border-b border-border/25 pb-3">
-            <CardTitle className="flex items-center gap-2 text-sm font-semibold tracking-tight">
-              <span className="flex size-7 items-center justify-center rounded-lg bg-primary/12 text-primary">
+          <CardHeader className="shrink-0 border-b border-border/35 pb-3">
+            <CardTitle className="flex items-center gap-2 text-sm font-semibold tracking-tight text-foreground">
+              <span className="flex size-7 items-center justify-center rounded-md bg-primary/12 text-primary">
                 <MessageSquare className="size-4" />
               </span>
               转播台
             </CardTitle>
-            <CardDescription className="text-[11px] leading-relaxed">
+            <CardDescription className="text-[11px] leading-relaxed text-muted-foreground/90">
               对话视图按会话拼接消息；事件视图为内核完整事件流，可展开 JSON。
             </CardDescription>
           </CardHeader>
-          <CardContent className="flex min-h-0 flex-1 flex-col gap-0 px-0 pb-3">
+          <CardContent className="flex min-h-0 flex-1 flex-col gap-0 overflow-hidden px-0 pb-3">
             <Tabs
               value={feedTab}
               onValueChange={(v) => {
@@ -810,12 +741,12 @@ export default function App() {
                 setFeedTab(t);
                 saveUiPrefs({ feedTab: t });
               }}
-              className="flex min-h-[240px] flex-1 flex-col gap-0"
+              className="flex min-h-0 flex-1 flex-col gap-0 overflow-hidden"
             >
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/25 px-5 pb-2.5 sm:px-6">
+              <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border/30 px-4 pb-2.5 sm:px-5">
                 <TabsList
                   variant="line"
-                  className="h-9 justify-start gap-1 rounded-lg bg-muted/20 p-1"
+                  className="h-9 justify-start gap-0.5 rounded-lg bg-muted/30 p-1"
                 >
                   <TabsTrigger value="chat" className="rounded-md px-3 text-xs">
                     对话
@@ -837,19 +768,19 @@ export default function App() {
                     清空
                   </Button>
                 ) : (
-                  <span className="rounded-md bg-muted/30 px-2 py-1 font-mono text-[10px] text-muted-foreground">
+                  <span className="rounded-md bg-muted/35 px-2 py-1 font-mono text-[10px] text-muted-foreground">
                     {sessionId ? `${linesForSession.length} 条` : "未选会话"}
                   </span>
                 )}
               </div>
               <TabsContent
                 value="chat"
-                className="mt-0 min-h-0 flex-1 overflow-hidden px-0 pt-3 outline-none data-[state=inactive]:hidden"
+                className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden px-0 pt-3 outline-none data-[state=inactive]:hidden"
               >
-                <ScrollArea className="h-[min(48vh,420px)] px-5 sm:px-6">
+                <ScrollArea className="min-h-0 flex-1 px-4 sm:px-5">
                   <div className="space-y-3 pr-4 pb-2">
                     {!sessionId ? (
-                      <Empty className="min-h-[200px] border-border/25 bg-muted/10">
+                      <Empty className="min-h-[200px] border-border/30 bg-muted/12">
                         <EmptyHeader>
                           <EmptyMedia variant="icon">
                             <MessageSquare className="size-5 text-primary/70" />
@@ -861,7 +792,7 @@ export default function App() {
                         </EmptyHeader>
                       </Empty>
                     ) : linesForSession.length === 0 ? (
-                      <p className="rounded-lg border border-dashed border-border/35 py-10 text-center text-xs text-muted-foreground">
+                      <p className="rounded-lg border border-dashed border-border/30 bg-muted/10 py-10 text-center text-xs text-muted-foreground">
                         尚无消息。在下方输入并发送即可开始。
                       </p>
                     ) : (
@@ -869,14 +800,14 @@ export default function App() {
                         <div
                           key={m.id}
                           className={cn(
-                            "relative rounded-xl border px-4 py-3 text-sm leading-relaxed shadow-sm",
+                            "relative rounded-lg border px-3.5 py-2.5 text-sm leading-relaxed",
                             m.role === "user"
-                              ? "ml-5 border-primary/20 bg-primary/[0.06] before:absolute before:inset-y-2.5 before:-left-2.5 before:w-1 before:rounded-full before:bg-primary/70"
-                              : "mr-5 border-border/40 bg-card/90 before:absolute before:inset-y-2.5 before:-right-2.5 before:w-1 before:rounded-full before:bg-muted-foreground/35",
+                              ? "ml-3 border-primary/22 bg-primary/[0.07] before:absolute before:inset-y-2 before:-left-2 before:w-0.5 before:rounded-full before:bg-primary/65"
+                              : "mr-3 border-border/35 bg-card/55 before:absolute before:inset-y-2 before:-right-2 before:w-0.5 before:rounded-full before:bg-muted-foreground/30",
                           )}
                         >
-                          <div className="mb-1.5 flex items-center gap-2">
-                            <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          <div className="mb-1 flex items-center gap-2">
+                            <span className="text-[10px] font-medium text-muted-foreground">
                               {m.role === "user" ? "你" : "助手"}
                             </span>
                             {m.streaming ? (
@@ -897,9 +828,9 @@ export default function App() {
               </TabsContent>
               <TabsContent
                 value="log"
-                className="mt-0 min-h-0 flex-1 overflow-hidden px-0 pt-3 outline-none data-[state=inactive]:hidden"
+                className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden px-0 pt-3 outline-none data-[state=inactive]:hidden"
               >
-                <ScrollArea className="h-[min(48vh,420px)] px-5 sm:px-6">
+                <ScrollArea className="min-h-0 flex-1 px-4 sm:px-5">
                   <div className="space-y-2 pr-4 pb-2">
                     {log.length === 0 ? (
                       <Empty className="min-h-[180px] border-border/30 bg-muted/10">
@@ -955,10 +886,10 @@ export default function App() {
                 </ScrollArea>
               </TabsContent>
             </Tabs>
-            <Separator className="bg-border/35" />
-            <div className="space-y-2.5 rounded-b-xl bg-muted/10 px-5 py-3 sm:px-6">
+            <Separator className="shrink-0 bg-border/30" />
+            <div className="shrink-0 space-y-2.5 rounded-b-[inherit] border-t border-border/25 bg-muted/12 px-4 py-3 sm:px-5">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                <span className="text-[11px] font-medium text-muted-foreground">
                   撰写
                 </span>
                 <div className="flex flex-wrap gap-1.5">
@@ -1006,7 +937,7 @@ export default function App() {
                     sendMessage();
                   }
                 }}
-                className="min-h-[92px] resize-none rounded-lg border-border/40 bg-background/80 text-sm"
+                className="min-h-[88px] resize-none rounded-md border-border/40 bg-background/70 text-sm"
               />
               <div className="flex flex-wrap justify-end gap-2">
                 <Button
@@ -1032,35 +963,36 @@ export default function App() {
             </div>
           </CardContent>
         </Card>
-
-        {/* 右：检查器 */}
-        <Card
-          size="sm"
-          className="vault-enter-delay-2 panel-surface flex min-h-[320px] flex-col border-border/35 bg-card/55 shadow-none ring-1 ring-primary/8 lg:min-h-0"
+        </div>
+      </div>
+      <Sheet open={inspectorOpen} onOpenChange={setInspectorOpen}>
+        <SheetContent
+          side="right"
+          className="flex h-full max-h-dvh w-full flex-col gap-0 border-border/50 bg-card/95 p-0 shadow-2xl sm:max-w-lg md:max-w-xl"
         >
-          <CardHeader className="border-b border-border/25 pb-3">
-            <CardTitle className="flex items-center gap-2 text-sm font-semibold tracking-tight">
-              <span className="flex size-7 items-center justify-center rounded-lg bg-primary/12 text-primary">
+          <SheetHeader className="shrink-0 space-y-1 border-b border-border/35 bg-card/50 px-4 py-3.5 pr-12 text-left">
+            <SheetTitle className="flex items-center gap-2.5 text-base font-semibold text-foreground">
+              <span className="flex size-8 items-center justify-center rounded-md bg-primary/12 text-primary">
                 <Users className="size-4" />
               </span>
               检查器
-            </CardTitle>
-            <CardDescription className="text-[11px] leading-relaxed">
+            </SheetTitle>
+            <SheetDescription className="text-[11px] leading-relaxed text-muted-foreground/90">
               记忆、调度、MCP、Agent 与系统状态；所选 Tab 会保存在本机。
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="min-h-0 flex-1 overflow-hidden pt-3">
+            </SheetDescription>
+          </SheetHeader>
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background/20 px-4 pb-4 pt-3">
             <Tabs
               value={inspectorTab}
               onValueChange={(v) => {
                 setInspectorTab(v);
                 saveUiPrefs({ inspectorTab: v });
               }}
-              className="flex h-full min-h-[280px] flex-col gap-2 lg:min-h-0"
+              className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden"
             >
               <TabsList
                 variant="line"
-                className="inspector-tabs h-auto w-full flex-nowrap justify-start gap-1 overflow-x-auto rounded-lg border border-border/30 bg-muted/20 p-1"
+                className="inspector-tabs h-auto w-full shrink-0 flex-nowrap justify-start gap-0.5 overflow-x-auto rounded-lg border border-border/35 bg-muted/30 p-1"
               >
                 <TabsTrigger value="memory" className="shrink-0 rounded-md px-2.5 text-xs sm:px-3">
                   记忆
@@ -1493,17 +1425,18 @@ export default function App() {
                 </FieldGroup>
               </TabsContent>
             </Tabs>
-          </CardContent>
-        </Card>
-      </div>
+          </div>
+        </SheetContent>
+      </Sheet>
+
       <Sheet open={settingsOpen} onOpenChange={setSettingsOpen}>
         <SheetContent
           side="right"
-          className="flex w-full flex-col gap-0 border-border/40 bg-card/95 sm:max-w-md"
+          className="flex w-full flex-col gap-0 border-border/50 bg-card/95 shadow-2xl sm:max-w-md"
         >
-          <SheetHeader className="space-y-1 border-b border-border/30 pb-4 text-left">
-            <SheetTitle className="font-heading">设置</SheetTitle>
-            <SheetDescription className="text-[11px] leading-relaxed">
+          <SheetHeader className="space-y-1 border-b border-border/35 bg-card/50 pb-4 text-left">
+            <SheetTitle className="font-heading text-foreground">设置</SheetTitle>
+            <SheetDescription className="text-[11px] leading-relaxed text-muted-foreground/90">
               内核有效配置的只读快照（无 API 密钥，仅 env
               变量名）。修改请编辑系统配置目录下的{" "}
               <code className="font-mono text-[10px]">config.json</code>{" "}

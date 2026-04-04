@@ -149,9 +149,9 @@
     isolation: isolate;
     background-color: var(--background);
     background-image:
-        radial-gradient(ellipse 120% 80% at 0% -20%, oklch(0.45 0.08 78 / 18%), transparent 55%),
-        radial-gradient(ellipse 90% 60% at 100% 100%, oklch(0.35 0.06 250 / 12%), transparent 50%),
-        linear-gradient(165deg, oklch(0.19 0.02 58) 0%, var(--background) 45%, oklch(0.15 0.025 55) 100%);
+        radial-gradient(ellipse 100% 70% at 0% 0%, oklch(0.42 0.07 78 / 12%), transparent 52%),
+        radial-gradient(ellipse 80% 50% at 100% 100%, oklch(0.32 0.05 250 / 8%), transparent 48%),
+        linear-gradient(180deg, oklch(0.185 0.019 62) 0%, var(--background) 38%, oklch(0.16 0.02 58) 100%);
 }
 
 .vault-bg::before {
@@ -159,14 +159,14 @@
     position: fixed;
     inset: 0;
     z-index: -1;
-    opacity: 0.04;
+    opacity: 0.022;
     pointer-events: none;
     background-image: repeating-linear-gradient(
         -12deg,
         transparent,
-        transparent 35px,
-        oklch(0.9 0.02 95 / 6%) 35px,
-        oklch(0.9 0.02 95 / 6%) 36px
+        transparent 40px,
+        oklch(0.92 0.015 95 / 5%) 40px,
+        oklch(0.92 0.015 95 / 5%) 41px
     );
 }
 
@@ -175,24 +175,26 @@
 }
 
 .vault-enter-delay-1 {
-    animation: vault-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
-    animation-delay: 90ms;
+    animation: vault-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation-delay: 40ms;
 }
 
 .vault-enter-delay-2 {
-    animation: vault-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
-    animation-delay: 160ms;
+    animation: vault-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation-delay: 80ms;
 }
 
 .vault-accent-line {
     animation: vault-shine 4s ease-in-out infinite;
 }
 
-/* 面板：轻微内高光，弱化「厚边框」感 */
-.panel-surface {
+/* 主内容卡片：统一边框与轻微景深（圆角用 Tailwind rounded-xl 与 Card 对齐） */
+.app-panel {
+    border: 1px solid oklch(0.4 0.022 65 / 28%);
+    background-color: oklch(0.205 0.02 62 / 0.78);
     box-shadow:
-        inset 0 1px 0 oklch(1 0 0 / 4%),
-        0 1px 0 oklch(0 0 0 / 12%);
+        0 1px 0 oklch(1 0 0 / 5%) inset,
+        0 10px 32px oklch(0 0 0 / 16%);
 }
 
 /* 检查器 Tab：横向滚动且不抢焦点 */
@@ -204,9 +206,21 @@
     display: none;
 }
 
+/* 自定义标题栏：关闭按钮悬停（与系统窗口一致的红底） */
+.titlebar-close:hover {
+    color: oklch(0.98 0.01 95);
+}
+
 @layer base {
     * {
         @apply border-border outline-ring/50;
+    }
+    html,
+    body,
+    #root {
+        height: 100%;
+        max-height: 100%;
+        overflow: hidden;
     }
     body {
         @apply bg-background text-foreground antialiased;
