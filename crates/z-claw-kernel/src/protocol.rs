@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 /// Commands sent from the GPUI shell to the kernel.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -12,8 +13,12 @@ pub enum UiCommand {
         content: String,
     },
     ListSessions,
+    /// Push a redacted config + runtime snapshot to the UI (`ConfigSnapshot` event).
+    GetConfigSnapshot,
     /// Refresh MCP tool catalog for all connected (or lazy) servers.
     RefreshMcpTools,
+    /// Run connectivity / filesystem checks (OpenClaw-style `doctor`).
+    RunHealthCheck,
     /// Propose a cron job (validated by policy before persistence).
     ScheduleAdd {
         cron_expr: String,
@@ -87,7 +92,10 @@ pub enum KernelEvent {
         summary: String,
     },
     PolicyBlocked {
-        reason: String,
+        /// Machine-readable category for UI and logs.
+        code: PolicyBlockCode,
+        /// Human-readable explanation (may duplicate legacy `reason` in older clients).
+        message: String,
     },
     McpToolsUpdated {
         servers: Vec<McpServerToolsSummary>,
@@ -116,7 +124,15 @@ pub enum KernelEvent {
         snippets: Vec<String>,
     },
     AuditEntry {
-        line: String,
+        record: AuditRecord,
+    },
+    HealthReport {
+        checked_at_ms: i64,
+        items: Vec<HealthCheckItem>,
+    },
+    /// Effective configuration (no secrets). `snapshot` merges file config + runtime fields.
+    ConfigSnapshot {
+        snapshot: Value,
     },
 }
 
@@ -131,6 +147,38 @@ pub struct SessionSummary {
 pub struct McpServerToolsSummary {
     pub server_id: String,
     pub tool_names: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PolicyBlockCode {
+    ToolBlocked,
+    PathNotAllowed,
+    ScheduleDenied,
+    Other,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AuditKind {
+    Tool,
+    Schedule,
+    Policy,
+    General,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditRecord {
+    pub timestamp_ms: i64,
+    pub kind: AuditKind,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HealthCheckItem {
+    pub id: String,
+    pub ok: bool,
+    pub detail: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

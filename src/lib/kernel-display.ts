@@ -71,10 +71,16 @@ export function summarizeKernelEvent(payload: Record<string, unknown>): {
       };
     }
     case "PolicyBlocked": {
-      const v = raw as { reason?: string };
+      const v = raw as {
+        code?: string;
+        message?: string;
+        reason?: string;
+      };
+      const msg = v.message ?? v.reason ?? "";
+      const code = v.code ?? "other";
       return {
         label: "策略",
-        detail: v.reason ?? "",
+        detail: `${code}: ${msg}`,
         tone: "danger",
       };
     }
@@ -139,8 +145,40 @@ export function summarizeKernelEvent(payload: Record<string, unknown>): {
       };
     }
     case "AuditEntry": {
-      const v = raw as { line?: string };
+      const v = raw as {
+        line?: string;
+        record?: { kind?: string; message?: string; timestamp_ms?: number };
+      };
+      if (v.record?.message != null) {
+        const k = v.record.kind ?? "general";
+        return {
+          label: `审计·${k}`,
+          detail: v.record.message,
+          tone: "neutral",
+        };
+      }
       return { label: "审计", detail: v.line ?? "", tone: "neutral" };
+    }
+    case "ConfigSnapshot":
+      return {
+        label: "配置",
+        detail: "快照已更新（无密钥，仅 env 名）",
+        tone: "neutral",
+      };
+    case "HealthReport": {
+      const v = raw as {
+        items?: { id: string; ok: boolean; detail: string }[];
+      };
+      const items = v.items ?? [];
+      const failed = items.filter((i) => !i.ok);
+      const ok = failed.length === 0;
+      return {
+        label: "自检",
+        detail: ok
+          ? `全部通过（${items.length} 项）`
+          : `${failed.length} 项失败 / 共 ${items.length} 项`,
+        tone: ok ? "success" : "warning",
+      };
     }
     default:
       return {

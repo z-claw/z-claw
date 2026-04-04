@@ -6025,6 +6025,7 @@ name = "z-claw-cli"
 version = "0.1.0"
 dependencies = [
  "crossbeam-channel",
+ "tokio",
  "tracing",
  "tracing-subscriber",
  "z-claw-kernel",

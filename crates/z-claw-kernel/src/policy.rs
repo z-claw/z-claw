@@ -1,6 +1,6 @@
 use crate::config::PolicyConfig;
 use crate::error::{KernelError, Result};
-use crate::protocol::SchedulePayload;
+use crate::protocol::{AuditKind, AuditRecord, SchedulePayload};
 use parking_lot::Mutex;
 use std::collections::VecDeque;
 use std::str::FromStr;
@@ -10,7 +10,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 #[derive(Clone)]
 pub struct PolicyEngine {
     cfg: PolicyConfig,
-    audit: Arc<Mutex<VecDeque<String>>>,
+    audit: Arc<Mutex<VecDeque<AuditRecord>>>,
 }
 
 impl PolicyEngine {
@@ -21,20 +21,27 @@ impl PolicyEngine {
         }
     }
 
-    fn now_line(&self, msg: impl AsRef<str>) {
-        let ms = SystemTime::now()
+    fn now_ms() -> i64 {
+        SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_millis())
-            .unwrap_or(0);
-        let line = format!("[{ms}] {}", msg.as_ref());
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0)
+    }
+
+    fn push_audit(&self, kind: AuditKind, msg: impl AsRef<str>) {
+        let record = AuditRecord {
+            timestamp_ms: Self::now_ms(),
+            kind,
+            message: msg.as_ref().to_string(),
+        };
         let mut q = self.audit.lock();
         if q.len() >= 256 {
             q.pop_front();
         }
-        q.push_back(line);
+        q.push_back(record);
     }
 
-    pub fn drain_audit(&self, max: usize) -> Vec<String> {
+    pub fn drain_audit(&self, max: usize) -> Vec<AuditRecord> {
         let mut q = self.audit.lock();
         let take = q.len().min(max);
         q.drain(..take).collect()
@@ -52,11 +59,14 @@ impl PolicyEngine {
             .any(|b| b.eq_ignore_ascii_case(tool_name))
         {
             let reason = format!("tool blocked by policy: {tool_name}");
-            self.now_line(&reason);
+            self.push_audit(AuditKind::Policy, &reason);
             return Err(KernelError::PolicyDenied(reason));
         }
         self.validate_path_arguments(arguments)?;
-        self.now_line(format!("tool allowed: {tool_name}"));
+        self.push_audit(
+            AuditKind::Tool,
+            format!("tool allowed: {tool_name}"),
+        );
         Ok(())
     }
 
@@ -70,7 +80,7 @@ impl PolicyEngine {
             let ok = prefixes.iter().any(|pre| p.starts_with(pre));
             if !ok {
                 let reason = format!("path not under allowed prefix: {p}");
-                self.now_line(&reason);
+                self.push_audit(AuditKind::Policy, &reason);
                 return Err(KernelError::PolicyDenied(reason));
             }
         }
@@ -84,7 +94,9 @@ impl PolicyEngine {
         payload: &SchedulePayload,
     ) -> Result<()> {
         if payload.prompt.trim().is_empty() {
-            return Err(KernelError::PolicyDenied("empty schedule prompt".into()));
+            let msg = "empty schedule prompt";
+            self.push_audit(AuditKind::Schedule, msg);
+            return Err(KernelError::PolicyDenied(msg.into()));
         }
         let schedule = cron::Schedule::from_str(cron_expr).map_err(|e| {
             KernelError::InvalidCron(format!("{cron_expr}: {e}"))
@@ -102,11 +114,11 @@ impl PolicyEngine {
                     "schedule interval {gap}s < min {}s",
                     self.cfg.min_schedule_interval_sec
                 );
-                self.now_line(&reason);
+                self.push_audit(AuditKind::Schedule, &reason);
                 return Err(KernelError::PolicyDenied(reason));
             }
         }
-        self.now_line("schedule proposal accepted by policy");
+        self.push_audit(AuditKind::Schedule, "schedule proposal accepted by policy");
         Ok(())
     }
 

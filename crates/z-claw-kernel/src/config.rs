@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppConfig {
@@ -14,6 +15,8 @@ pub struct AppConfig {
     pub routing: RoutingConfig,
     #[serde(default)]
     pub policy: PolicyConfig,
+    #[serde(default)]
+    pub memory: MemoryConfig,
     #[serde(default)]
     pub data_dir: Option<String>,
 }
@@ -69,6 +72,51 @@ fn default_max_swarm_tasks() -> usize {
     8
 }
 
+/// Long transcript handling + recall limits (see `docs/policy-and-audit.md`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryConfig {
+    /// When enabled, old `messages` rows are summarized into `episodic` after the threshold.
+    #[serde(default)]
+    pub compaction_enabled: bool,
+    #[serde(default = "default_compaction_message_threshold")]
+    pub compaction_message_threshold: usize,
+    #[serde(default = "default_compaction_keep_recent")]
+    pub compaction_keep_recent: usize,
+    #[serde(default = "default_compaction_summary_max_chars")]
+    pub compaction_summary_max_chars: usize,
+    /// Upper bound for `MemoryRecall` and internal recall budgets (tokens ≈ chars/4).
+    #[serde(default = "default_max_recall_budget_tokens")]
+    pub max_recall_budget_tokens: u32,
+}
+
+impl Default for MemoryConfig {
+    fn default() -> Self {
+        Self {
+            compaction_enabled: false,
+            compaction_message_threshold: default_compaction_message_threshold(),
+            compaction_keep_recent: default_compaction_keep_recent(),
+            compaction_summary_max_chars: default_compaction_summary_max_chars(),
+            max_recall_budget_tokens: default_max_recall_budget_tokens(),
+        }
+    }
+}
+
+fn default_compaction_message_threshold() -> usize {
+    96
+}
+
+fn default_compaction_keep_recent() -> usize {
+    48
+}
+
+fn default_compaction_summary_max_chars() -> usize {
+    8000
+}
+
+fn default_max_recall_budget_tokens() -> u32 {
+    8192
+}
+
 impl AppConfig {
     pub fn load_or_default() -> Self {
         let path = default_config_path();
@@ -89,9 +137,15 @@ impl AppConfig {
             mcp_servers: vec![],
             routing: RoutingConfig::default(),
             policy: PolicyConfig::default(),
+            memory: MemoryConfig::default(),
             data_dir: None,
         }
     }
+}
+
+/// Config file path (same as `load_or_default` reads).
+pub fn config_file_path() -> std::path::PathBuf {
+    default_config_path()
 }
 
 fn default_config_path() -> std::path::PathBuf {
@@ -105,4 +159,42 @@ fn dirs_config_dir() -> std::path::PathBuf {
         return p.join("z-claw");
     }
     std::path::PathBuf::from(".z-claw")
+}
+
+/// 供 UI 展示的运行时配置快照（不含 API 密钥，仅 `api_key_env` 名称）。
+pub fn snapshot_for_ui(cfg: &AppConfig) -> Value {
+    json!({
+        "default_provider_id": cfg.default_provider_id,
+        "default_model": cfg.default_model,
+        "providers": cfg.providers.iter().map(|p| json!({
+            "id": p.id,
+            "base_url": p.base_url,
+            "api_key_env": p.api_key_env,
+            "default_model": p.default_model,
+        })).collect::<Vec<_>>(),
+        "mcp_servers": cfg.mcp_servers.iter().map(|m| json!({
+            "id": m.id,
+            "command": m.command,
+            "args": m.args,
+            "lazy": m.lazy,
+            "tool_namespace_prefix": m.tool_namespace_prefix,
+        })).collect::<Vec<_>>(),
+        "routing": {
+            "fallback_chain": cfg.routing.fallback_chain,
+        },
+        "policy": {
+            "allowed_path_prefixes": cfg.policy.allowed_path_prefixes,
+            "blocked_tool_names": cfg.policy.blocked_tool_names,
+            "min_schedule_interval_sec": cfg.policy.min_schedule_interval_sec,
+            "max_swarm_tasks": cfg.policy.max_swarm_tasks,
+        },
+        "memory": {
+            "compaction_enabled": cfg.memory.compaction_enabled,
+            "compaction_message_threshold": cfg.memory.compaction_message_threshold,
+            "compaction_keep_recent": cfg.memory.compaction_keep_recent,
+            "compaction_summary_max_chars": cfg.memory.compaction_summary_max_chars,
+            "max_recall_budget_tokens": cfg.memory.max_recall_budget_tokens,
+        },
+        "data_dir": cfg.data_dir,
+    })
 }

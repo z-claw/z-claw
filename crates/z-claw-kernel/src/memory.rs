@@ -4,6 +4,11 @@ use rusqlite::{Connection, OptionalExtension, params};
 use std::path::Path;
 use std::sync::Arc;
 
+/// Clamp recall token budget to configured maximum (floor 16 tokens).
+pub fn clamp_recall_budget(requested: u32, max_allowed: u32) -> u32 {
+    requested.min(max_allowed).max(16)
+}
+
 pub struct MemoryEngine {
     conn: Arc<Mutex<Connection>>,
 }
@@ -95,6 +100,75 @@ impl MemoryEngine {
         Ok(out)
     }
 
+    pub fn count_messages(&self, session_id: &str) -> Result<usize> {
+        let c = self.conn.lock();
+        let n: i64 = c.query_row(
+            "SELECT COUNT(*) FROM messages WHERE session_id = ?1",
+            params![session_id],
+            |r| r.get(0),
+        )?;
+        Ok(n as usize)
+    }
+
+    /// When `count > threshold`, move oldest messages into `episodic` and delete them.
+    pub fn maybe_compact_session(
+        &self,
+        session_id: &str,
+        enabled: bool,
+        threshold: usize,
+        keep_recent: usize,
+        max_summary_chars: usize,
+    ) -> Result<bool> {
+        if !enabled || threshold == 0 || keep_recent >= threshold {
+            return Ok(false);
+        }
+        let count = self.count_messages(session_id)?;
+        if count <= threshold {
+            return Ok(false);
+        }
+        let to_remove = count.saturating_sub(keep_recent);
+        if to_remove == 0 {
+            return Ok(false);
+        }
+
+        let c = self.conn.lock();
+        let mut stmt = c.prepare(
+            "SELECT id, role, content FROM messages WHERE session_id = ?1 ORDER BY created_ms ASC LIMIT ?2",
+        )?;
+        let rows: Vec<(String, String, String)> = stmt
+            .query_map(params![session_id, to_remove as i64], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+            })?
+            .filter_map(|x| x.ok())
+            .collect();
+        drop(stmt);
+        if rows.is_empty() {
+            return Ok(false);
+        }
+
+        let mut blob = rows
+            .iter()
+            .map(|(_, role, content)| format!("{role}: {content}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        if blob.len() > max_summary_chars {
+            blob.truncate(max_summary_chars);
+        }
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let eid = uuid::Uuid::new_v4().to_string();
+
+        let tx = c.unchecked_transaction()?;
+        tx.execute(
+            "INSERT INTO episodic (id, session_id, summary, created_ms) VALUES (?1, ?2, ?3, ?4)",
+            params![eid, session_id, format!("[compacted]\n{blob}"), now_ms],
+        )?;
+        for (id, _, _) in &rows {
+            tx.execute("DELETE FROM messages WHERE id = ?1", params![id])?;
+        }
+        tx.commit()?;
+        Ok(true)
+    }
+
     pub fn load_recent_messages(&self, session_id: &str, limit: usize) -> Result<Vec<(String, String)>> {
         let c = self.conn.lock();
         let mut stmt = c.prepare(
@@ -155,7 +229,9 @@ impl MemoryEngine {
         workspace_root: Option<&str>,
         query: &str,
         budget_tokens: u32,
+        max_budget_tokens: u32,
     ) -> Result<Vec<String>> {
+        let budget_tokens = clamp_recall_budget(budget_tokens, max_budget_tokens);
         let budget_chars = (budget_tokens as usize).saturating_mul(4).max(64);
         let mut snippets = vec![];
         let mut used = 0usize;

@@ -1,4 +1,4 @@
-use crate::config::AppConfig;
+use crate::config::{snapshot_for_ui, AppConfig};
 use crate::error::{KernelError, Result};
 use crate::memory::MemoryEngine;
 use crate::mcp_pool::McpPool;
@@ -9,7 +9,7 @@ use crate::provider::{
     ToolDefinition,
 };
 use crate::protocol::{
-    KernelEvent, SessionSummary, SwarmSubTask, UiCommand,
+    KernelEvent, PolicyBlockCode, SessionSummary, SwarmSubTask, UiCommand,
 };
 use crate::scheduler::JobScheduler;
 use futures_util::StreamExt;
@@ -101,8 +101,8 @@ pub async fn run_kernel_loop(
                         let _ = state.scheduler.mark_fired(&job_id, now);
                     }
                 }
-                for line in state.policy.drain_audit(8) {
-                    let _ = event_tx.send(KernelEvent::AuditEntry { line });
+                for record in state.policy.drain_audit(8) {
+                    let _ = event_tx.send(KernelEvent::AuditEntry { record });
                 }
             }
             cmd = bridge_rx.recv() => {
@@ -116,7 +116,7 @@ pub async fn run_kernel_loop(
     Ok(())
 }
 
-fn resolve_provider_and_model(cfg: &AppConfig) -> Result<(Arc<OpenAiCompatibleProvider>, String)> {
+pub fn resolve_provider_and_model(cfg: &AppConfig) -> Result<(Arc<OpenAiCompatibleProvider>, String)> {
     let pid = cfg
         .default_provider_id
         .as_deref()
@@ -139,6 +139,21 @@ fn resolve_provider_and_model(cfg: &AppConfig) -> Result<(Arc<OpenAiCompatiblePr
         Arc::new(OpenAiCompatibleProvider::new(&p.base_url, key)),
         model,
     ))
+}
+
+fn classify_policy_denial(message: &str) -> PolicyBlockCode {
+    if message.contains("tool blocked by policy") {
+        PolicyBlockCode::ToolBlocked
+    } else if message.contains("path not under allowed prefix") {
+        PolicyBlockCode::PathNotAllowed
+    } else if message.contains("schedule")
+        || message.contains("empty schedule prompt")
+        || message.contains("interval")
+    {
+        PolicyBlockCode::ScheduleDenied
+    } else {
+        PolicyBlockCode::Other
+    }
 }
 
 async fn handle_command(state: &Arc<KernelState>, cmd: UiCommand) -> Result<()> {
@@ -167,6 +182,22 @@ async fn handle_command(state: &Arc<KernelState>, cmd: UiCommand) -> Result<()> 
                 .event_tx
                 .send(KernelEvent::SessionsList { sessions });
         }
+        UiCommand::GetConfigSnapshot => {
+            let mut snapshot = snapshot_for_ui(&state.cfg);
+            if let Some(obj) = snapshot.as_object_mut() {
+                obj.insert(
+                    "runtime".to_string(),
+                    json!({
+                        "model": state.model,
+                        "workspace_root": state.workspace_root,
+                        "default_mcp_server": state.default_mcp_server,
+                    }),
+                );
+            }
+            let _ = state
+                .event_tx
+                .send(KernelEvent::ConfigSnapshot { snapshot });
+        }
         UiCommand::SendMessage {
             session_id,
             content,
@@ -185,6 +216,18 @@ async fn handle_command(state: &Arc<KernelState>, cmd: UiCommand) -> Result<()> 
         UiCommand::RefreshMcpTools => {
             state.mcp.refresh_all_tools().await?;
             emit_mcp_summary(state).await?;
+        }
+        UiCommand::RunHealthCheck => {
+            let items = crate::health::collect_health_report(
+                &state.cfg,
+                Some(state.provider.as_ref()),
+                state.mcp.as_ref(),
+            )
+            .await;
+            let _ = state.event_tx.send(KernelEvent::HealthReport {
+                checked_at_ms: crate::health::health_timestamp_ms(),
+                items,
+            });
         }
         UiCommand::ScheduleAdd {
             cron_expr,
@@ -275,6 +318,7 @@ async fn handle_command(state: &Arc<KernelState>, cmd: UiCommand) -> Result<()> 
                 state.workspace_root.as_deref(),
                 &query,
                 budget_tokens,
+                state.cfg.memory.max_recall_budget_tokens,
             )?;
             let _ = state.event_tx.send(KernelEvent::MemoryRecalled {
                 session_id,
@@ -294,6 +338,7 @@ async fn run_swarm_worker(state: &KernelState, instruction: &str) -> Result<Stri
         state.workspace_root.as_deref(),
         instruction,
         1024,
+        state.cfg.memory.max_recall_budget_tokens,
     )?;
     let messages = vec![
         ChatMessage {
@@ -341,6 +386,7 @@ async fn run_model_turn(
         state.workspace_root.as_deref(),
         "",
         2048,
+        state.cfg.memory.max_recall_budget_tokens,
     )?;
     let hist = state.memory.load_recent_messages(session_id, 48)?;
     let mut messages = vec![ChatMessage {
@@ -413,6 +459,13 @@ async fn run_model_turn(
                 &assistant_text,
                 now,
             )?;
+            let _ = state.memory.maybe_compact_session(
+                session_id,
+                state.cfg.memory.compaction_enabled,
+                state.cfg.memory.compaction_message_threshold,
+                state.cfg.memory.compaction_keep_recent,
+                state.cfg.memory.compaction_summary_max_chars,
+            );
             let _ = state.event_tx.send(KernelEvent::MessageComplete {
                 session_id: session_id.to_string(),
                 role: "assistant".into(),
@@ -456,9 +509,13 @@ async fn run_model_turn(
             let policy_check = state.policy.validate_tool_call(&call.name, &args_val);
             let result = match policy_check {
                 Err(e) => {
-                    let _ = state.event_tx.send(KernelEvent::PolicyBlocked {
-                        reason: e.to_string(),
-                    });
+                    let (code, message) = match &e {
+                        KernelError::PolicyDenied(msg) => {
+                            (classify_policy_denial(msg), msg.clone())
+                        }
+                        _ => (PolicyBlockCode::Other, e.to_string()),
+                    };
+                    let _ = state.event_tx.send(KernelEvent::PolicyBlocked { code, message });
                     format!("policy_blocked: {e}")
                 }
                 Ok(()) => match execute_tool(state, &call, args_map).await {

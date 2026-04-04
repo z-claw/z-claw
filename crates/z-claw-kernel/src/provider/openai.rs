@@ -79,6 +79,25 @@ impl OpenAiCompatibleProvider {
         }
         body
     }
+
+    /// Lightweight GET `{base}/models` for health checks (OpenAI-compatible).
+    pub async fn ping_models(&self) -> Result<String> {
+        let url = format!("{}/models", self.base_url);
+        let res = self
+            .client
+            .get(url)
+            .headers(self.headers()?)
+            .send()
+            .await?;
+        let status = res.status();
+        if !status.is_success() {
+            let t = res.text().await.unwrap_or_default();
+            return Err(KernelError::Message(format!(
+                "GET /models -> {status}: {t}"
+            )));
+        }
+        Ok(format!("GET /models -> {status}"))
+    }
 }
 
 #[async_trait]

@@ -107,7 +107,7 @@ impl McpPool {
         Ok(())
     }
 
-    async fn list_tools_for_server(&self, server_id: &str) -> Result<Vec<ToolDefinition>> {
+    pub async fn list_tools_for_server(&self, server_id: &str) -> Result<Vec<ToolDefinition>> {
         self.ensure_worker(server_id).await?;
         let tx = {
             let map = self.workers.read().await;

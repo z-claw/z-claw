@@ -29,6 +29,14 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { .. } = event {
+                let h = window.app_handle();
+                if let Some(bridge) = h.try_state::<KernelBridge>() {
+                    let _ = bridge.cmd_tx.send(UiCommand::Shutdown);
+                }
+            }
+        })
         .setup(|app| {
             let handle: AppHandle = app.handle().clone();
             let cfg = AppConfig::load_or_default();

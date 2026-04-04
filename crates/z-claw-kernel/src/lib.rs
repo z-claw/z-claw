@@ -2,6 +2,7 @@
 
 pub mod config;
 pub mod error;
+pub mod health;
 pub mod kernel;
 pub mod memory;
 pub mod mcp_pool;
