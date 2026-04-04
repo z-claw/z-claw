@@ -9,7 +9,7 @@ use crate::provider::{
     ToolDefinition,
 };
 use crate::protocol::{
-    KernelEvent, PolicyBlockCode, SessionSummary, SwarmSubTask, UiCommand,
+    HistoryMessage, KernelEvent, PolicyBlockCode, SessionSummary, SwarmSubTask, UiCommand,
 };
 use crate::scheduler::JobScheduler;
 use futures_util::StreamExt;
@@ -181,6 +181,35 @@ async fn handle_command(state: &Arc<KernelState>, cmd: UiCommand) -> Result<()> 
             let _ = state
                 .event_tx
                 .send(KernelEvent::SessionsList { sessions });
+        }
+        UiCommand::LoadSessionHistory {
+            session_id,
+            limit,
+            client_request_id,
+        } => {
+            let cap = limit.clamp(1, 500);
+            let rows = state.memory.load_recent_messages(&session_id, cap)?;
+            let messages = rows
+                .into_iter()
+                .map(|(role, content)| HistoryMessage { role, content })
+                .collect();
+            let _ = state.event_tx.send(KernelEvent::SessionHistoryLoaded {
+                session_id,
+                client_request_id,
+                messages,
+            });
+        }
+        UiCommand::RenameSession { session_id, title } => {
+            let now = chrono::Utc::now().timestamp_millis();
+            state.memory.rename_session(&session_id, &title, now)?;
+            let _ = state.event_tx.send(KernelEvent::SessionRenamed {
+                session_id,
+                title,
+            });
+        }
+        UiCommand::DeleteSession { session_id } => {
+            state.memory.delete_session(&session_id)?;
+            let _ = state.event_tx.send(KernelEvent::SessionDeleted { session_id });
         }
         UiCommand::GetConfigSnapshot => {
             let mut snapshot = snapshot_for_ui(&state.cfg);

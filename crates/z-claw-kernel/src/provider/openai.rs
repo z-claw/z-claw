@@ -1,3 +1,6 @@
+//! OpenAI-compatible HTTP client (`/chat/completions`, streaming SSE, `/models` health ping).
+//! 仅配置即可对接的厂商见仓库 `docs/adding-openai-compatible-provider.md`。
+
 use crate::error::{KernelError, Result};
 use crate::provider::{ChatProvider, ChatRequest, StreamChunk, ToolCallFragment};
 use async_trait::async_trait;

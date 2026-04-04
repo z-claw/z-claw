@@ -38,6 +38,37 @@ export function summarizeKernelEvent(payload: Record<string, unknown>): {
       const n = v.sessions?.length ?? 0;
       return { label: "会话列表", detail: `${n} 条`, tone: "neutral" };
     }
+    case "SessionHistoryLoaded": {
+      const v = raw as {
+        messages?: unknown[];
+        session_id?: string;
+        client_request_id?: number;
+      };
+      const n = v.messages?.length ?? 0;
+      const rid =
+        v.client_request_id != null ? ` · req ${v.client_request_id}` : "";
+      return {
+        label: "历史",
+        detail: `已加载 ${n} 条 · ${v.session_id?.slice(0, 8) ?? "?"}…${rid}`,
+        tone: "accent",
+      };
+    }
+    case "SessionRenamed": {
+      const v = raw as { session_id?: string; title?: string };
+      return {
+        label: "会话",
+        detail: `已重命名 · ${v.title ?? ""}`,
+        tone: "accent",
+      };
+    }
+    case "SessionDeleted": {
+      const v = raw as { session_id?: string };
+      return {
+        label: "会话",
+        detail: `已删除 ${v.session_id?.slice(0, 8) ?? "?"}…`,
+        tone: "warning",
+      };
+    }
     case "MessageDelta": {
       const v = raw as { delta?: string; role?: string };
       return {

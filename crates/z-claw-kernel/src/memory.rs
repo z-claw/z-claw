@@ -89,6 +89,30 @@ impl MemoryEngine {
         Ok(())
     }
 
+    pub fn rename_session(&self, session_id: &str, title: &str, now_ms: i64) -> Result<()> {
+        let c = self.conn.lock();
+        let n = c.execute(
+            "UPDATE sessions SET title = ?2, updated_ms = ?3 WHERE id = ?1",
+            params![session_id, title, now_ms],
+        )?;
+        if n == 0 {
+            return Err(KernelError::Message(format!(
+                "session not found: {session_id}"
+            )));
+        }
+        Ok(())
+    }
+
+    pub fn delete_session(&self, session_id: &str) -> Result<()> {
+        let c = self.conn.lock();
+        let tx = c.unchecked_transaction()?;
+        tx.execute("DELETE FROM messages WHERE session_id = ?1", params![session_id])?;
+        tx.execute("DELETE FROM episodic WHERE session_id = ?1", params![session_id])?;
+        tx.execute("DELETE FROM sessions WHERE id = ?1", params![session_id])?;
+        tx.commit()?;
+        Ok(())
+    }
+
     pub fn list_sessions(&self) -> Result<Vec<(String, String, i64)>> {
         let c = self.conn.lock();
         let mut stmt = c.prepare("SELECT id, title, updated_ms FROM sessions ORDER BY updated_ms DESC")?;
@@ -291,6 +315,18 @@ impl MemoryEngine {
         }
 
         Ok(snippets)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clamp_recall_budget_respects_max_and_floor() {
+        assert_eq!(clamp_recall_budget(100, 50), 50);
+        assert_eq!(clamp_recall_budget(10, 8192), 16);
+        assert_eq!(clamp_recall_budget(4096, 8192), 4096);
     }
 }
 

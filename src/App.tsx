@@ -12,6 +12,7 @@ import {
   MessageSquare,
   Network,
   Radio,
+  RotateCw,
   Send,
   Sparkles,
   Stethoscope,
@@ -64,6 +65,16 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
@@ -80,6 +91,7 @@ import {
 import {
   appendUserLine,
   reduceTranscriptFromKernel,
+  replaceTranscriptFromHistory,
   type SessionTranscript,
 } from "@/lib/transcript";
 import { loadUiPrefs, saveUiPrefs, type FeedTab } from "@/lib/ui-prefs";
@@ -174,10 +186,19 @@ export default function App() {
   } | null>(null);
   const [auditTrail, setAuditTrail] = useState<AuditRecordRow[]>([]);
   const [policyTrail, setPolicyTrail] = useState<PolicyBlockRow[]>([]);
+  const [sessionRenameDraft, setSessionRenameDraft] = useState("");
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const chatBottomRef = useRef<HTMLDivElement>(null);
   const listedRef = useRef(false);
   const sessionRestoreRef = useRef<string | null>(uiPrefs0.lastSessionId);
+  const sessionIdRef = useRef<string | null>(null);
+  /** 与 LoadSessionHistory / SessionHistoryLoaded 对齐，丢弃过期历史包。发送用户消息时递增以作废在途 load。 */
+  const historyRequestIdRef = useRef(0);
+
+  useEffect(() => {
+    sessionIdRef.current = sessionId;
+  }, [sessionId]);
 
   const send = useCallback(async (cmd: unknown) => {
     try {
@@ -201,6 +222,25 @@ export default function App() {
     }
   }, []);
 
+  const loadSessionHistory = useCallback(
+    (sid: string) => {
+      const rid = ++historyRequestIdRef.current;
+      void send({
+        LoadSessionHistory: {
+          session_id: sid,
+          limit: 200,
+          client_request_id: rid,
+        },
+      });
+    },
+    [send],
+  );
+
+  useEffect(() => {
+    if (!kernelReady || !sessionId) return;
+    loadSessionHistory(sessionId);
+  }, [kernelReady, sessionId, loadSessionHistory]);
+
   useEffect(() => {
     if (kernelReady && !listedRef.current) {
       listedRef.current = true;
@@ -222,6 +262,15 @@ export default function App() {
       saveUiPrefs({ lastSessionId: sessionId });
     }
   }, [sessionId]);
+
+  useEffect(() => {
+    if (!sessionId) {
+      setSessionRenameDraft("");
+      return;
+    }
+    const s = sessions.find((x) => x.id === sessionId);
+    setSessionRenameDraft(s?.title ?? "");
+  }, [sessionId, sessions]);
 
   useEffect(() => {
     if (settingsOpen) {
@@ -247,6 +296,59 @@ export default function App() {
           sessions?: SessionRow[];
         };
         setSessions(sl.sessions ?? []);
+      }
+      if ("SessionHistoryLoaded" in payload) {
+        const v = payload.SessionHistoryLoaded as {
+          session_id?: string;
+          client_request_id?: number;
+          messages?: { role: string; content: string }[];
+        };
+        const sid = v.session_id;
+        const msgs = v.messages;
+        const rid = v.client_request_id ?? 0;
+        if (
+          sid &&
+          Array.isArray(msgs) &&
+          sessionIdRef.current === sid &&
+          rid === historyRequestIdRef.current
+        ) {
+          setTranscripts((prev) =>
+            replaceTranscriptFromHistory(prev, sid, msgs),
+          );
+        }
+      }
+      if ("SessionRenamed" in payload) {
+        const v = payload.SessionRenamed as {
+          session_id?: string;
+          title?: string;
+        };
+        if (v.session_id != null && v.title != null) {
+          setSessions((prev) =>
+            prev.map((s) =>
+              s.id === v.session_id ? { ...s, title: v.title! } : s,
+            ),
+          );
+        }
+      }
+      if ("SessionDeleted" in payload) {
+        const v = payload.SessionDeleted as { session_id?: string };
+        const sid = v.session_id;
+        if (sid) {
+          setSessions((prev) => prev.filter((s) => s.id !== sid));
+          setTranscripts((prev) => {
+            const n = { ...prev };
+            delete n[sid];
+            return n;
+          });
+          setSessionId((cur) => {
+            if (cur === sid) {
+              saveUiPrefs({ lastSessionId: null });
+              return null;
+            }
+            return cur;
+          });
+          setDeleteConfirmId((d) => (d === sid ? null : d));
+        }
       }
       if ("McpToolsUpdated" in payload) {
         const m = payload.McpToolsUpdated as { servers?: McpServerRow[] };
@@ -348,11 +450,28 @@ export default function App() {
   const sendMessage = () => {
     const t = messageDraft.trim();
     if (!sessionId || !t) return;
+    historyRequestIdRef.current += 1;
     setTranscripts((prev) => appendUserLine(prev, sessionId, t));
     void send({
       SendMessage: { session_id: sessionId, content: t },
     });
     setMessageDraft("");
+  };
+
+  const applySessionRename = () => {
+    if (!sessionId) return;
+    const title = sessionRenameDraft.trim();
+    if (!title) return;
+    const cur = sessions.find((s) => s.id === sessionId)?.title;
+    if (title === cur) return;
+    void send({ RenameSession: { session_id: sessionId, title } });
+  };
+
+  const confirmDeleteSession = () => {
+    const sid = deleteConfirmId;
+    if (!sid) return;
+    void send({ DeleteSession: { session_id: sid } });
+    setDeleteConfirmId(null);
   };
 
   const recallMemory = () => {
@@ -454,26 +573,34 @@ export default function App() {
 
   return (
     <div className="vault-bg flex min-h-svh flex-col">
-      <header className="vault-enter border-b border-border/50 bg-card/30 px-5 py-4 backdrop-blur-md">
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div className="space-y-1">
-            <div className="flex items-baseline gap-3">
-              <h1 className="font-heading text-lg font-semibold tracking-[0.35em] text-primary">
-                Z-CLAW
-              </h1>
-              <span className="text-[10px] font-medium tracking-[0.2em] text-muted-foreground uppercase">
-                agent console
-              </span>
+      <header className="vault-enter sticky top-0 z-40 border-b border-border/40 bg-card/75 px-4 py-3 backdrop-blur-xl supports-[backdrop-filter]:bg-card/55">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-start gap-3 sm:items-center">
+            <div
+              className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-primary/35 bg-gradient-to-br from-primary/15 to-primary/5 text-primary shadow-[inset_0_1px_0_oklch(1_0_0/8%)]"
+              aria-hidden
+            >
+              <Sparkles className="size-5 opacity-90" />
             </div>
-            <p className="max-w-xl text-xs leading-relaxed text-muted-foreground">
-              本地内核 · Tauri 壳 · 事件流与工具台同屏。排版取「工业简报」：高对比标签、等宽信息层。
-            </p>
+            <div className="min-w-0 space-y-0.5">
+              <div className="flex flex-wrap items-baseline gap-2">
+                <h1 className="font-mono text-base font-semibold tracking-[0.22em] text-primary">
+                  Z-CLAW
+                </h1>
+                <span className="rounded-md border border-border/40 bg-muted/25 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                  Agent 控制台
+                </span>
+              </div>
+              <p className="max-w-xl text-xs leading-snug text-muted-foreground">
+                本地内核 · 对话与事件流 · 工具与策略同屏
+              </p>
+            </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 sm:justify-end">
             <Badge
               variant="outline"
               className={cn(
-                "gap-1.5 border font-mono text-[10px] tracking-wider uppercase",
+                "gap-1.5 border font-mono text-[10px] tracking-wide uppercase",
                 kernelReady
                   ? "border-emerald-500/40 bg-emerald-950/30 text-emerald-100"
                   : "border-border/60 text-muted-foreground",
@@ -487,18 +614,18 @@ export default function App() {
               />
               {kernelReady ? "kernel online" : "connecting"}
             </Badge>
-            <div className="flex max-w-[min(100vw-2rem,320px)] items-center gap-1">
+            <div className="flex min-w-0 max-w-[min(100vw-2rem,340px)] items-center gap-1 rounded-lg border border-border/35 bg-background/40 p-0.5 pl-2">
               <Badge
                 variant="outline"
-                className="min-w-0 flex-1 truncate border-border/60 bg-muted/30 font-mono text-[10px] text-muted-foreground"
+                className="min-w-0 flex-1 truncate border-transparent bg-transparent font-mono text-[10px] text-muted-foreground shadow-none"
               >
-                session: {sessionId ?? "—"}
+                {sessionId ?? "未选会话"}
               </Badge>
               <Button
                 type="button"
                 size="icon-sm"
                 variant="ghost"
-                className="shrink-0 text-muted-foreground"
+                className="shrink-0 text-muted-foreground hover:text-foreground"
                 disabled={!sessionId}
                 onClick={() => void copySessionId()}
                 title="复制会话 ID"
@@ -508,8 +635,8 @@ export default function App() {
               <Button
                 type="button"
                 size="icon-sm"
-                variant="outline"
-                className="shrink-0 border-border/50"
+                variant="secondary"
+                className="shrink-0"
                 onClick={() => setSettingsOpen(true)}
                 title="设置与配置快照"
               >
@@ -519,31 +646,33 @@ export default function App() {
           </div>
         </div>
         <div
-          className="vault-accent-line mt-4 h-px w-24 rounded-full bg-primary/60"
+          className="vault-accent-line mt-3 h-px w-20 rounded-full bg-primary/55"
           aria-hidden
         />
       </header>
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 p-4 lg:grid-cols-[minmax(200px,240px)_1fr_minmax(280px,380px)] lg:gap-5">
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 p-3 sm:p-4 lg:grid-cols-[minmax(220px,260px)_minmax(0,1fr)_minmax(300px,400px)] lg:gap-4">
         {/* 左：会话与快捷指令 */}
         <Card
           size="sm"
-          className="vault-enter-delay-1 flex min-h-0 flex-col border-border/40 bg-card/60 shadow-none ring-1 ring-primary/5"
+          className="vault-enter-delay-1 panel-surface flex min-h-0 flex-col border-border/35 bg-card/55 shadow-none ring-1 ring-primary/8"
         >
-          <CardHeader className="border-b border-border/30 pb-4">
-            <CardTitle className="flex items-center gap-2 text-xs tracking-[0.25em] uppercase">
-              <Layers className="size-4 text-primary" />
+          <CardHeader className="border-b border-border/25 pb-3">
+            <CardTitle className="flex items-center gap-2 text-sm font-semibold tracking-tight">
+              <span className="flex size-7 items-center justify-center rounded-lg bg-primary/12 text-primary">
+                <Layers className="size-4" />
+              </span>
               会话
             </CardTitle>
-            <CardDescription className="text-[11px] leading-snug">
-              创建、切换会话；右侧发送前须选定会话。
+            <CardDescription className="text-[11px] leading-relaxed">
+              从本地 SQLite 载入历史；发送消息前请先选定会话。
             </CardDescription>
           </CardHeader>
-          <CardContent className="flex flex-1 flex-col gap-4 pt-4">
-            <div className="flex flex-col gap-2">
+          <CardContent className="flex flex-1 flex-col gap-3 pt-3">
+            <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-3 lg:grid-cols-1">
               <Button
                 size="sm"
-                className="justify-start gap-2 font-mono text-xs"
+                className="justify-center gap-2 text-xs sm:justify-start"
                 onClick={() => send({ CreateSession: { title: "chat" } })}
               >
                 <Sparkles className="size-3.5 opacity-80" />
@@ -552,44 +681,104 @@ export default function App() {
               <Button
                 size="sm"
                 variant="outline"
-                className="justify-start gap-2 font-mono text-xs"
+                className="justify-center gap-2 text-xs sm:justify-start"
                 onClick={() => send("ListSessions")}
               >
                 <Activity className="size-3.5 opacity-80" />
                 刷新列表
               </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="justify-center gap-2 text-xs sm:justify-start"
+                disabled={!sessionId}
+                onClick={() => sessionId && loadSessionHistory(sessionId)}
+              >
+                <RotateCw className="size-3.5 opacity-80" />
+                同步历史
+              </Button>
             </div>
-            <Separator className="bg-border/40" />
-            <div className="min-h-0 flex-1 space-y-1">
-              <p className="mb-2 font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
-                已缓存
+            <Separator className="bg-border/35" />
+            <div className="space-y-1.5">
+              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                重命名当前会话
               </p>
-              <ScrollArea className="h-40 lg:h-52">
+              <div className="flex gap-1.5">
+                <Input
+                  value={sessionRenameDraft}
+                  onChange={(e) => setSessionRenameDraft(e.target.value)}
+                  disabled={!sessionId}
+                  placeholder={sessionId ? "标题" : "先选择会话"}
+                  className="h-8 min-w-0 flex-1 font-mono text-xs"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      applySessionRename();
+                    }
+                  }}
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  className="h-8 shrink-0 px-2.5 text-xs"
+                  disabled={
+                    !sessionId ||
+                    !sessionRenameDraft.trim() ||
+                    sessionRenameDraft.trim() ===
+                      sessions.find((x) => x.id === sessionId)?.title
+                  }
+                  onClick={() => applySessionRename()}
+                >
+                  保存
+                </Button>
+              </div>
+            </div>
+            <Separator className="bg-border/35" />
+            <div className="min-h-0 flex-1 space-y-1">
+              <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                会话列表
+              </p>
+              <ScrollArea className="h-44 lg:h-[min(52vh,320px)]">
                 <div className="flex flex-col gap-1.5 pr-3">
                   {sessions.length === 0 ? (
-                    <p className="text-[11px] text-muted-foreground">
-                      暂无列表，点击「刷新列表」。
+                    <p className="rounded-lg border border-dashed border-border/40 bg-muted/10 px-3 py-6 text-center text-[11px] text-muted-foreground">
+                      暂无会话，可先点「刷新列表」。
                     </p>
                   ) : (
                     sessions.map((s) => (
-                      <button
+                      <div
                         key={s.id}
-                        type="button"
-                        onClick={() => selectSession(s.id)}
                         className={cn(
-                          "rounded-md border px-2.5 py-2 text-left transition-colors",
+                          "flex items-stretch gap-0.5 rounded-lg border transition-all",
                           sessionId === s.id
-                            ? "border-primary/50 bg-primary/10"
-                            : "border-border/40 bg-muted/20 hover:bg-muted/40",
+                            ? "border-primary/45 bg-primary/[0.12] shadow-[inset_3px_0_0_0_var(--primary)]"
+                            : "border-border/30 bg-muted/10 hover:border-border/50 hover:bg-muted/25",
                         )}
                       >
-                        <div className="truncate text-xs font-medium">
-                          {s.title}
-                        </div>
-                        <div className="truncate font-mono text-[10px] text-muted-foreground">
-                          {s.id}
-                        </div>
-                      </button>
+                        <button
+                          type="button"
+                          className="min-w-0 flex-1 px-3 py-2.5 text-left"
+                          onClick={() => selectSession(s.id)}
+                        >
+                          <div className="truncate text-sm font-medium leading-tight">
+                            {s.title}
+                          </div>
+                          <div className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">
+                            {s.id}
+                          </div>
+                        </button>
+                        <Button
+                          type="button"
+                          size="icon-sm"
+                          variant="ghost"
+                          className="mt-1 mr-1 shrink-0 text-muted-foreground hover:text-destructive"
+                          title="删除会话"
+                          onClick={() => setDeleteConfirmId(s.id)}
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      </div>
                     ))
                   )}
                 </div>
@@ -600,18 +789,20 @@ export default function App() {
 
         {/* 中：事件流 + 撰写 */}
         <Card
-          className="vault-enter-delay-2 flex min-h-0 flex-col border-border/40 bg-card/70 shadow-none ring-1 ring-primary/5"
+          className="vault-enter-delay-2 panel-surface flex min-h-0 flex-col border-border/35 bg-card/65 shadow-none ring-1 ring-primary/8"
         >
-          <CardHeader className="shrink-0 border-b border-border/30 pb-4">
-            <CardTitle className="flex items-center gap-2 text-sm">
-              <MessageSquare className="size-4 text-primary" />
-              转播
+          <CardHeader className="shrink-0 border-b border-border/25 pb-3">
+            <CardTitle className="flex items-center gap-2 text-sm font-semibold tracking-tight">
+              <span className="flex size-7 items-center justify-center rounded-lg bg-primary/12 text-primary">
+                <MessageSquare className="size-4" />
+              </span>
+              转播台
             </CardTitle>
-            <CardDescription>
-              「对话」按会话拼接用户与助手；「事件」为完整内核流，可展开 JSON。
+            <CardDescription className="text-[11px] leading-relaxed">
+              对话视图按会话拼接消息；事件视图为内核完整事件流，可展开 JSON。
             </CardDescription>
           </CardHeader>
-          <CardContent className="flex min-h-0 flex-1 flex-col gap-0 px-0 pb-4">
+          <CardContent className="flex min-h-0 flex-1 flex-col gap-0 px-0 pb-3">
             <Tabs
               value={feedTab}
               onValueChange={(v) => {
@@ -619,14 +810,17 @@ export default function App() {
                 setFeedTab(t);
                 saveUiPrefs({ feedTab: t });
               }}
-              className="flex min-h-[220px] flex-1 flex-col gap-0"
+              className="flex min-h-[240px] flex-1 flex-col gap-0"
             >
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/30 px-6 pb-3">
-                <TabsList variant="line" className="h-8 justify-start gap-0">
-                  <TabsTrigger value="chat" className="font-mono text-xs">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/25 px-5 pb-2.5 sm:px-6">
+                <TabsList
+                  variant="line"
+                  className="h-9 justify-start gap-1 rounded-lg bg-muted/20 p-1"
+                >
+                  <TabsTrigger value="chat" className="rounded-md px-3 text-xs">
                     对话
                   </TabsTrigger>
-                  <TabsTrigger value="log" className="font-mono text-xs">
+                  <TabsTrigger value="log" className="rounded-md px-3 text-xs">
                     事件
                   </TabsTrigger>
                 </TabsList>
@@ -635,7 +829,7 @@ export default function App() {
                     type="button"
                     size="sm"
                     variant="ghost"
-                    className="h-8 font-mono text-xs text-muted-foreground"
+                    className="h-8 text-xs text-muted-foreground hover:text-foreground"
                     disabled={log.length === 0}
                     onClick={() => setLog([])}
                   >
@@ -643,7 +837,7 @@ export default function App() {
                     清空
                   </Button>
                 ) : (
-                  <span className="font-mono text-[10px] text-muted-foreground">
+                  <span className="rounded-md bg-muted/30 px-2 py-1 font-mono text-[10px] text-muted-foreground">
                     {sessionId ? `${linesForSession.length} 条` : "未选会话"}
                   </span>
                 )}
@@ -652,40 +846,46 @@ export default function App() {
                 value="chat"
                 className="mt-0 min-h-0 flex-1 overflow-hidden px-0 pt-3 outline-none data-[state=inactive]:hidden"
               >
-                <ScrollArea className="h-[min(42vh,340px)] px-6">
+                <ScrollArea className="h-[min(48vh,420px)] px-5 sm:px-6">
                   <div className="space-y-3 pr-4 pb-2">
                     {!sessionId ? (
-                      <Empty className="min-h-[180px] border-border/30 bg-muted/10">
+                      <Empty className="min-h-[200px] border-border/25 bg-muted/10">
                         <EmptyHeader>
                           <EmptyMedia variant="icon">
                             <MessageSquare className="size-5 text-primary/70" />
                           </EmptyMedia>
                           <EmptyTitle>先选一个会话</EmptyTitle>
                           <EmptyDescription>
-                            左侧创建或选择会话后，这里会显示该会话的消息时间线。
+                            在左侧创建或选择会话后，这里会显示该会话的消息时间线。
                           </EmptyDescription>
                         </EmptyHeader>
                       </Empty>
                     ) : linesForSession.length === 0 ? (
-                      <p className="py-8 text-center text-xs text-muted-foreground">
-                        尚无消息。在下方撰写并发送即可开始。
+                      <p className="rounded-lg border border-dashed border-border/35 py-10 text-center text-xs text-muted-foreground">
+                        尚无消息。在下方输入并发送即可开始。
                       </p>
                     ) : (
                       linesForSession.map((m) => (
                         <div
                           key={m.id}
                           className={cn(
-                            "rounded-lg border px-3 py-2.5 text-sm leading-relaxed",
+                            "relative rounded-xl border px-4 py-3 text-sm leading-relaxed shadow-sm",
                             m.role === "user"
-                              ? "ml-4 border-primary/25 bg-primary/8"
-                              : "mr-4 border-border/40 bg-background/50",
+                              ? "ml-5 border-primary/20 bg-primary/[0.06] before:absolute before:inset-y-2.5 before:-left-2.5 before:w-1 before:rounded-full before:bg-primary/70"
+                              : "mr-5 border-border/40 bg-card/90 before:absolute before:inset-y-2.5 before:-right-2.5 before:w-1 before:rounded-full before:bg-muted-foreground/35",
                           )}
                         >
-                          <div className="mb-1 font-mono text-[9px] tracking-wider text-muted-foreground uppercase">
-                            {m.role}
-                            {m.streaming ? " · …" : ""}
+                          <div className="mb-1.5 flex items-center gap-2">
+                            <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                              {m.role === "user" ? "你" : "助手"}
+                            </span>
+                            {m.streaming ? (
+                              <span className="font-mono text-[9px] text-primary/80">
+                                输出中…
+                              </span>
+                            ) : null}
                           </div>
-                          <p className="whitespace-pre-wrap font-mono text-[13px] text-foreground/90">
+                          <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-foreground/92">
                             {m.text || " "}
                           </p>
                         </div>
@@ -699,7 +899,7 @@ export default function App() {
                 value="log"
                 className="mt-0 min-h-0 flex-1 overflow-hidden px-0 pt-3 outline-none data-[state=inactive]:hidden"
               >
-                <ScrollArea className="h-[min(42vh,340px)] px-6">
+                <ScrollArea className="h-[min(48vh,420px)] px-5 sm:px-6">
                   <div className="space-y-2 pr-4 pb-2">
                     {log.length === 0 ? (
                       <Empty className="min-h-[180px] border-border/30 bg-muted/10">
@@ -755,17 +955,17 @@ export default function App() {
                 </ScrollArea>
               </TabsContent>
             </Tabs>
-            <Separator className="bg-border/40" />
-            <div className="space-y-2 px-6">
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
+            <Separator className="bg-border/35" />
+            <div className="space-y-2.5 rounded-b-xl bg-muted/10 px-5 py-3 sm:px-6">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                   撰写
                 </span>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-1.5">
                   <Button
                     size="sm"
                     variant="outline"
-                    className="font-mono text-xs"
+                    className="h-8 gap-1.5 text-xs"
                     onClick={() => send("RefreshMcpTools")}
                   >
                     <Network className="size-3.5" />
@@ -774,7 +974,7 @@ export default function App() {
                   <Button
                     size="sm"
                     variant="outline"
-                    className="font-mono text-xs"
+                    className="h-8 gap-1.5 text-xs"
                     onClick={() => send("ScheduleList")}
                   >
                     <CalendarClock className="size-3.5" />
@@ -783,7 +983,7 @@ export default function App() {
                   <Button
                     size="sm"
                     variant="outline"
-                    className="font-mono text-xs"
+                    className="h-8 gap-1.5 text-xs"
                     onClick={() => void send("RunHealthCheck")}
                     title="健康检查"
                   >
@@ -794,19 +994,19 @@ export default function App() {
               <Textarea
                 placeholder={
                   sessionId
-                    ? "输入消息，Enter+Ctrl 或点击发送…"
+                    ? "Enter 发送 · Shift+Enter 换行"
                     : "先创建或选择一个会话"
                 }
                 value={messageDraft}
                 disabled={!sessionId}
                 onChange={(e) => setMessageDraft(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                  if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
                     sendMessage();
                   }
                 }}
-                className="min-h-[88px] resize-none font-mono text-sm"
+                className="min-h-[92px] resize-none rounded-lg border-border/40 bg-background/80 text-sm"
               />
               <div className="flex flex-wrap justify-end gap-2">
                 <Button
@@ -814,7 +1014,7 @@ export default function App() {
                   variant="outline"
                   disabled={!sessionId || linesForSession.length === 0}
                   onClick={exportTranscriptMd}
-                  className="gap-2 font-mono text-xs"
+                  className="gap-2 text-xs"
                 >
                   <FileDown className="size-3.5" />
                   导出对话
@@ -823,7 +1023,7 @@ export default function App() {
                   size="sm"
                   disabled={!sessionId || !messageDraft.trim()}
                   onClick={sendMessage}
-                  className="gap-2 font-mono"
+                  className="gap-2 shadow-sm"
                 >
                   <Send className="size-3.5" />
                   发送
@@ -836,44 +1036,52 @@ export default function App() {
         {/* 右：检查器 */}
         <Card
           size="sm"
-          className="vault-enter-delay-2 flex min-h-[320px] flex-col border-border/40 bg-card/60 shadow-none ring-1 ring-primary/5 lg:min-h-0"
+          className="vault-enter-delay-2 panel-surface flex min-h-[320px] flex-col border-border/35 bg-card/55 shadow-none ring-1 ring-primary/8 lg:min-h-0"
         >
-          <CardHeader className="border-b border-border/30 pb-3">
-            <CardTitle className="flex items-center gap-2 text-xs tracking-[0.2em] uppercase">
-              <Users className="size-4 text-primary" />
+          <CardHeader className="border-b border-border/25 pb-3">
+            <CardTitle className="flex items-center gap-2 text-sm font-semibold tracking-tight">
+              <span className="flex size-7 items-center justify-center rounded-lg bg-primary/12 text-primary">
+                <Users className="size-4" />
+              </span>
               检查器
             </CardTitle>
-            <CardDescription className="text-[11px]">
-              记忆、调度、MCP、Agent；Tab 与会话偏好会记住到本机。
+            <CardDescription className="text-[11px] leading-relaxed">
+              记忆、调度、MCP、Agent 与系统状态；所选 Tab 会保存在本机。
             </CardDescription>
           </CardHeader>
-          <CardContent className="min-h-0 flex-1 pt-4">
+          <CardContent className="min-h-0 flex-1 overflow-hidden pt-3">
             <Tabs
               value={inspectorTab}
               onValueChange={(v) => {
                 setInspectorTab(v);
                 saveUiPrefs({ inspectorTab: v });
               }}
-              className="flex h-full min-h-0 flex-col gap-3"
+              className="flex h-full min-h-[280px] flex-col gap-2 lg:min-h-0"
             >
-              <TabsList variant="line" className="w-full flex-wrap justify-start gap-0">
-                <TabsTrigger value="memory" className="font-mono text-xs">
+              <TabsList
+                variant="line"
+                className="inspector-tabs h-auto w-full flex-nowrap justify-start gap-1 overflow-x-auto rounded-lg border border-border/30 bg-muted/20 p-1"
+              >
+                <TabsTrigger value="memory" className="shrink-0 rounded-md px-2.5 text-xs sm:px-3">
                   记忆
                 </TabsTrigger>
-                <TabsTrigger value="schedule" className="font-mono text-xs">
+                <TabsTrigger value="schedule" className="shrink-0 rounded-md px-2.5 text-xs sm:px-3">
                   调度
                 </TabsTrigger>
-                <TabsTrigger value="mcp" className="font-mono text-xs">
+                <TabsTrigger value="mcp" className="shrink-0 rounded-md px-2.5 text-xs sm:px-3">
                   MCP
                 </TabsTrigger>
-                <TabsTrigger value="agents" className="font-mono text-xs">
+                <TabsTrigger value="agents" className="shrink-0 rounded-md px-2.5 text-xs sm:px-3">
                   Agent
                 </TabsTrigger>
-                <TabsTrigger value="system" className="font-mono text-xs">
+                <TabsTrigger value="system" className="shrink-0 rounded-md px-2.5 text-xs sm:px-3">
                   系统
                 </TabsTrigger>
               </TabsList>
-              <TabsContent value="memory" className="min-h-0 flex-1 outline-none">
+              <TabsContent
+                value="memory"
+                className="min-h-0 flex-1 overflow-y-auto pr-1 outline-none"
+              >
                 <FieldGroup className="gap-4">
                   <Field>
                     <FieldLabel>检索查询</FieldLabel>
@@ -957,7 +1165,10 @@ export default function App() {
                   </Button>
                 </FieldGroup>
               </TabsContent>
-              <TabsContent value="schedule" className="min-h-0 flex-1 outline-none">
+              <TabsContent
+                value="schedule"
+                className="min-h-0 flex-1 overflow-y-auto pr-1 outline-none"
+              >
                 <FieldGroup className="gap-4">
                   <Field>
                     <FieldLabel>Cron</FieldLabel>
@@ -1059,7 +1270,10 @@ export default function App() {
                   )}
                 </FieldGroup>
               </TabsContent>
-              <TabsContent value="mcp" className="min-h-0 flex-1 outline-none">
+              <TabsContent
+                value="mcp"
+                className="min-h-0 flex-1 overflow-y-auto pr-1 outline-none"
+              >
                 {mcpServers.length === 0 ? (
                   <p className="text-[11px] leading-relaxed text-muted-foreground">
                     尚无缓存。在转播区点「MCP」向内核请求{" "}
@@ -1094,7 +1308,10 @@ export default function App() {
                   </Accordion>
                 )}
               </TabsContent>
-              <TabsContent value="agents" className="min-h-0 flex-1 outline-none">
+              <TabsContent
+                value="agents"
+                className="min-h-0 flex-1 overflow-y-auto pr-1 outline-none"
+              >
                 <FieldGroup className="gap-4">
                   <Field>
                     <FieldTitle className="text-primary/90">委派</FieldTitle>
@@ -1152,7 +1369,10 @@ export default function App() {
                   </Button>
                 </FieldGroup>
               </TabsContent>
-              <TabsContent value="system" className="min-h-0 flex-1 outline-none">
+              <TabsContent
+                value="system"
+                className="min-h-0 flex-1 overflow-y-auto pr-1 outline-none"
+              >
                 <FieldGroup className="gap-4">
                   <Field>
                     <FieldTitle className="text-primary/90">健康检查</FieldTitle>
@@ -1327,6 +1547,32 @@ export default function App() {
           </ScrollArea>
         </SheetContent>
       </Sheet>
+      <AlertDialog
+        open={deleteConfirmId != null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteConfirmId(null);
+        }}
+      >
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>删除会话？</AlertDialogTitle>
+            <AlertDialogDescription>
+              将永久删除该会话在本地 SQLite
+              中的消息与片段记录，且不可恢复。确定要继续吗？
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel type="button">取消</AlertDialogCancel>
+            <AlertDialogAction
+              type="button"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => confirmDeleteSession()}
+            >
+              删除
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <Toaster theme="dark" richColors position="top-center" />
     </div>
   );

@@ -138,3 +138,21 @@ export function reduceTranscriptFromKernel(
 
   return bySession;
 }
+
+/** 用数据库返回的行替换该会话的 UI 时间线（切换会话或手动刷新时）。 */
+export function replaceTranscriptFromHistory(
+  bySession: SessionTranscript,
+  sessionId: string,
+  lines: { role: string; content: string }[],
+): SessionTranscript {
+  return {
+    ...bySession,
+    [sessionId]: lines.map((l, i) => ({
+      id: `db-${sessionId.slice(0, 8)}-${i}`,
+      sessionId,
+      role: l.role,
+      text: l.content,
+      streaming: false,
+    })),
+  };
+}

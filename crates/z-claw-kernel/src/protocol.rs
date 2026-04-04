@@ -13,6 +13,22 @@ pub enum UiCommand {
         content: String,
     },
     ListSessions,
+    /// Load recent messages from SQLite for UI transcript (chronological).
+    LoadSessionHistory {
+        session_id: String,
+        #[serde(default = "default_history_limit")]
+        limit: usize,
+        /// UI 递增；内核在 [`KernelEvent::SessionHistoryLoaded`] 中回传，用于丢弃过期响应。
+        #[serde(default)]
+        client_request_id: u64,
+    },
+    RenameSession {
+        session_id: String,
+        title: String,
+    },
+    DeleteSession {
+        session_id: String,
+    },
     /// Push a redacted config + runtime snapshot to the UI (`ConfigSnapshot` event).
     GetConfigSnapshot,
     /// Refresh MCP tool catalog for all connected (or lazy) servers.
@@ -70,6 +86,19 @@ pub enum KernelEvent {
     },
     SessionsList {
         sessions: Vec<SessionSummary>,
+    },
+    SessionHistoryLoaded {
+        session_id: String,
+        #[serde(default)]
+        client_request_id: u64,
+        messages: Vec<HistoryMessage>,
+    },
+    SessionRenamed {
+        session_id: String,
+        title: String,
+    },
+    SessionDeleted {
+        session_id: String,
     },
     MessageDelta {
         session_id: String,
@@ -134,6 +163,16 @@ pub enum KernelEvent {
     ConfigSnapshot {
         snapshot: Value,
     },
+}
+
+fn default_history_limit() -> usize {
+    200
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HistoryMessage {
+    pub role: String,
+    pub content: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
