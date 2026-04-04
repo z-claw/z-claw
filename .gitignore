@@ -1,4 +1,7 @@
+.vscode/*
+!.vscode/extensions.json
 .idea
-.vscode
 
 /target
+node_modules
+dist

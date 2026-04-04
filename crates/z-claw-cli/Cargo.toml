@@ -1,0 +1,19 @@
+[package]
+name = "z-claw-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Headless z-claw agent (kernel only, events on stderr)"
+
+[[bin]]
+name = "z-claw-cli"
+path = "src/main.rs"
+
+[dependencies]
+z-claw-kernel = { workspace = true }
+crossbeam-channel = "0.5"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[lints]
+workspace = true

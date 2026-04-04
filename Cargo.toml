@@ -1,9 +1,11 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/z-claw"
+    "src-tauri",
+    "crates/z-claw-kernel",
+    "crates/z-claw-cli",
 ]
-default-members = ["crates/z-claw"]
+default-members = ["src-tauri"]
 
 [workspace.package]
 license = "MIT OR Apache-2.0"
@@ -13,34 +15,12 @@ version = "0.1.0"
 edition = "2024"
 
 [workspace.dependencies]
-z-claw = { path = "crates/z-claw" }
-
-
-gpui = { git = "https://github.com/zed-industries/zed" }
-gpui_platform = { git = "https://github.com/zed-industries/zed", features = ["font-kit", "x11", "wayland", "runtime_shaders"] }
-gpui_web = { git = "https://github.com/zed-industries/zed" }
-gpui_macros = { git = "https://github.com/zed-industries/zed" }
-reqwest_client = { git = "https://github.com/zed-industries/zed" }
-sum-tree = { version = "0.2.0", package = "zed-sum-tree" }
-reqwest = { git = "https://github.com/zed-industries/reqwest.git", default-features = false, features = [
-    "charset",
-    "http2",
-    "macos-system-configuration",
-    "multipart",
-    "rustls-tls-native-roots",
-    "socks",
-    "stream",
-] }
-
-
+z-claw-kernel = { path = "crates/z-claw-kernel" }
 
 [profile.release]
 debug = "limited"
 lto = "thin"
 codegen-units = 1
-
-[profile.release.package]
-zed = { codegen-units = 16 }
 
 [profile.release-fast]
 inherits = "release"
@@ -54,50 +34,13 @@ unexpected_cfgs = { level = "allow" }
 [workspace.lints.clippy]
 dbg_macro = "deny"
 todo = "deny"
-
 declare_interior_mutable_const = "deny"
-
 redundant_clone = "deny"
 disallowed_methods = "deny"
-
-# We currently do not restrict any style rules
-# as it slows down shipping code to Zed.
-#
-# Running ./script/clippy can take several minutes, and so it's
-# common to skip that step and let CI do it. Any unexpected failures
-# (which also take minutes to discover) thus require switching back
-# to an old branch, manual fixing, and re-pushing.
-#
-# In the future we could improve this by either making sure
-# Zed can surface clippy errors in diagnostics (in addition to the
-# rust-analyzer errors), or by having CI fix style nits automatically.
 style = { level = "allow", priority = -1 }
-
-# Individual rules that have violations in the codebase:
 type_complexity = "allow"
 let_underscore_future = "allow"
-
-# Motivation: We use `vec![a..b]` a lot when dealing with ranges in text, so
-# warning on this rule produces a lot of noise.
 single_range_in_vec_init = "allow"
-
-# in Rust it can be very tedious to reduce argument count without
-# running afoul of the borrow checker.
 too_many_arguments = "allow"
-
-# We often have large enum variants yet we rarely actually bother with splitting them up.
 large_enum_variant = "allow"
-
-# Boolean expressions can be hard to read, requiring only the minimal form gets in the way
 nonminimal_bool = "allow"
-
-[workspace.metadata.cargo-machete]
-ignored = [
-    "bindgen",
-    "cbindgen",
-    "prost_build",
-    "serde",
-    "component",
-    "documented",
-    "sea-orm-macros",
-]
