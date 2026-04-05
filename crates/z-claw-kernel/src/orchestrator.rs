@@ -452,23 +452,33 @@ async fn handle_command(state: &Arc<KernelState>, cmd: UiCommand) -> Result<()> 
             let _ = state.event_tx.send(KernelEvent::AgentsList { agents, active });
         }
         UiCommand::SetActiveAgent { agent_id } => {
-            if state.workspace_manager.load_agent_profile(&agent_id).is_ok() {
-                *state.active_agent_id.write() = agent_id.clone();
-                
-                let agents = state.workspace_manager.list_agents().unwrap_or_default();
-                let active = state.active_agent_id.read().clone();
-                let _ = state.event_tx.send(KernelEvent::AgentsList { agents, active: active.clone() });
-                
-                let rows = state.memory.list_sessions(&active).unwrap_or_default();
-                let sessions = rows
-                    .into_iter()
-                    .map(|(id, title, updated_at_ms)| SessionSummary {
-                        id,
-                        title,
-                        updated_at_ms,
-                    })
-                    .collect();
-                let _ = state.event_tx.send(KernelEvent::SessionsList { sessions });
+            match state.workspace_manager.load_agent_profile(&agent_id) {
+                Ok(_) => {
+                    *state.active_agent_id.write() = agent_id.clone();
+
+                    let agents = state.workspace_manager.list_agents().unwrap_or_default();
+                    let active = state.active_agent_id.read().clone();
+                    let _ = state.event_tx.send(KernelEvent::AgentsList {
+                        agents,
+                        active: active.clone(),
+                    });
+
+                    let rows = state.memory.list_sessions(&active).unwrap_or_default();
+                    let sessions = rows
+                        .into_iter()
+                        .map(|(id, title, updated_at_ms)| SessionSummary {
+                            id,
+                            title,
+                            updated_at_ms,
+                        })
+                        .collect();
+                    let _ = state.event_tx.send(KernelEvent::SessionsList { sessions });
+                }
+                Err(e) => {
+                    let _ = state.event_tx.send(KernelEvent::Error {
+                        message: format!("无法切换到智能体 {agent_id}: {e}"),
+                    });
+                }
             }
         }
         UiCommand::CreateAgentProfile { agent_id } => {

@@ -267,3 +267,20 @@ pub struct ScheduledJobSummary {
     pub enabled: bool,
     pub prompt_preview: String,
 }
+
+#[cfg(test)]
+mod ui_command_json_tests {
+    use super::UiCommand;
+
+    #[test]
+    fn list_agents_from_externally_tagged_object() {
+        let c: UiCommand = serde_json::from_str(r#"{"ListAgents":null}"#).unwrap();
+        assert!(matches!(c, UiCommand::ListAgents));
+    }
+
+    #[test]
+    fn list_agents_from_plain_json_string() {
+        let c: UiCommand = serde_json::from_str(r#""ListAgents""#).unwrap();
+        assert!(matches!(c, UiCommand::ListAgents));
+    }
+}

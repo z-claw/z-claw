@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { Activity, Layers, RotateCw, Sparkles, Trash2 } from "lucide-react";
 import { Button } from "@workspace/ui/components/button";
 import {
@@ -9,6 +10,13 @@ import {
 } from "@workspace/ui/components/card";
 import { Input } from "@workspace/ui/components/input";
 import { ScrollArea } from "@workspace/ui/components/scroll-area";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@workspace/ui/components/select";
 import { Separator } from "@workspace/ui/components/separator";
 import { cn } from "@workspace/ui/lib/utils";
 import type { SessionRow } from "../../types";
@@ -42,6 +50,12 @@ export function Sidebar({
   activeAgent,
   onSelectAgent,
 }: SidebarProps) {
+  const agentSelectOptions = useMemo(() => {
+    const ids = new Set(agentsList);
+    if (activeAgent.length > 0) ids.add(activeAgent);
+    return Array.from(ids).sort((a, b) => a.localeCompare(b));
+  }, [agentsList, activeAgent]);
+
   return (
     <Card
       size="sm"
@@ -65,17 +79,33 @@ export function Sidebar({
             <span className="text-[9px] px-1.5 py-0.5 rounded bg-primary/20 text-primary">Beta</span>
           </p>
           <div className="flex gap-1.5 mt-2">
-            <select
-              className="flex h-8 min-w-0 flex-1 rounded-md border border-input/50 bg-background/50 px-2.5 py-1 text-xs shadow-sm shadow-black/5 ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:border-primary transition-all disabled:cursor-not-allowed disabled:opacity-50"
+            <Select
               value={activeAgent}
-              onChange={(e) => onSelectAgent(e.target.value)}
+              onValueChange={(v) => {
+                if (v != null && v !== "") onSelectAgent(v);
+              }}
+              onOpenChange={(open) => {
+                if (open) send("ListAgents");
+              }}
             >
-              {agentsList.length > 0 ? (
-                agentsList.map(a => <option key={a} value={a}>{a}</option>)
-              ) : (
-                <option value={activeAgent}>{activeAgent}</option>
-              )}
-            </select>
+              <SelectTrigger
+                size="sm"
+                className="h-8 min-w-0 flex-1 border-input/50 bg-background/50 px-2.5 text-xs shadow-sm shadow-black/5 ring-offset-background focus-visible:border-primary focus-visible:ring-1 focus-visible:ring-ring"
+              >
+                <SelectValue placeholder="选择智能体" />
+              </SelectTrigger>
+              <SelectContent
+                side="bottom"
+                align="start"
+                className="max-h-72 min-w-(--anchor-width)"
+              >
+                {agentSelectOptions.map((a) => (
+                  <SelectItem key={a} value={a} className="font-mono text-xs">
+                    {a}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Button
               size="icon-sm"
               variant="outline"

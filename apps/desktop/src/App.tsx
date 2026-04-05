@@ -225,6 +225,11 @@ export default function App() {
             : ({ _: e.payload } as KernelEventPayload);
 
         if ("Ready" in payload) setKernelReady(true);
+        if ("Error" in payload) {
+          const err = payload.Error as { message?: string };
+          const msg = err.message ?? "未知错误";
+          toast.error("内核错误", { description: msg });
+        }
         if ("SessionCreated" in payload) {
           const sc = payload.SessionCreated as { id: string };
           if (sc?.id) setSessionId(sc.id);
