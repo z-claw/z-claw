@@ -96,11 +96,24 @@ async fn build_turn_context(state: &KernelState, session_id: &str) -> Result<Mod
         2048,
         max_recall,
     )?;
+    let active_agent_id = state.active_agent_id.read().clone();
+    let profile = state
+        .workspace_manager
+        .load_agent_profile(&active_agent_id)
+        .unwrap_or_else(|_| crate::workspace::AgentProfile {
+            id: "Fallback".into(),
+            identity_prompt: "You are the Z-Claw AI Agent.".into(),
+            memory_text: "".into(),
+        });
+
     let hist = state.memory.load_recent_messages(session_id, 48)?;
     let mut messages = vec![ChatMessage {
         role: "system".into(),
         content: format!(
-            "You are z-claw desktop agent. Retrieved memory:\n{}",
+            "[{}]\n{}\n\n[Long-term Memory]\n{}\n\n[Retrieved Context]\n{}",
+            profile.id,
+            profile.identity_prompt,
+            profile.memory_text,
             recall.join("\n---\n")
         ),
         tool_calls: None,
@@ -225,7 +238,7 @@ async fn execute_tool_call_with_events(
         session_id: session_id.to_string(),
         tool_name: call.name.clone(),
     });
-    let result = execute_tool_call_result(state, call).await;
+    let result = execute_tool_call_result(state, session_id, call).await;
     let ok = !result.starts_with("policy_blocked") && !result.starts_with("tool_error");
     let _ = state.event_tx.send(KernelEvent::ToolCallFinished {
         session_id: session_id.to_string(),
@@ -236,7 +249,7 @@ async fn execute_tool_call_with_events(
     result
 }
 
-async fn execute_tool_call_result(state: &KernelState, call: &ResolvedToolCall) -> String {
+async fn execute_tool_call_result(state: &KernelState, session_id: &str, call: &ResolvedToolCall) -> String {
     let args_val: Value = serde_json::from_str(&call.arguments_json).unwrap_or(json!({}));
     let args_map = args_val.as_object().cloned().unwrap_or_default();
     match state.policy.validate_tool_call(&call.name, &args_val) {
@@ -250,7 +263,7 @@ async fn execute_tool_call_result(state: &KernelState, call: &ResolvedToolCall) 
                 .send(KernelEvent::PolicyBlocked { code, message });
             format!("policy_blocked: {e}")
         }
-        Ok(()) => match execute_tool(state, call, args_map).await {
+        Ok(()) => match execute_tool(state, session_id, call, args_map).await {
             Ok(s) => s,
             Err(e) => format!("tool_error: {e}"),
         },
@@ -277,8 +290,14 @@ fn resolve_tool_calls(acc: &ToolCallAccumulator) -> Result<Vec<ResolvedToolCall>
     Ok(out)
 }
 
+fn is_dangerous_tool(tool_name: &str) -> bool {
+    let n = tool_name.to_lowercase();
+    n.contains("bash") || n.contains("shell") || n.contains("command") || n.contains("powershell") || n.contains("process")
+}
+
 async fn execute_tool(
     state: &KernelState,
+    session_id: &str,
     call: &ResolvedToolCall,
     args: serde_json::Map<String, Value>,
 ) -> Result<String> {
@@ -302,6 +321,31 @@ async fn execute_tool(
             call.name
         )));
     };
+
+    if is_dangerous_tool(&call.name) {
+        let approval_id = Uuid::new_v4().to_string();
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        state.pending_approvals.write().insert(approval_id.clone(), tx);
+
+        let _ = state.event_tx.send(KernelEvent::ToolApprovalRequested {
+            approval_id: approval_id.clone(),
+            session_id: session_id.to_string(),
+            tool_name: call.name.clone(),
+            arguments_json: call.arguments_json.clone(),
+        });
+
+        match rx.await {
+            Ok(true) => {
+                // proceed
+            }
+            Ok(false) => {
+                return Err(KernelError::Message("Tool execution rejected by user".into()));
+            }
+            Err(_) => {
+                return Err(KernelError::Message("Tool execution approval channel dropped".into()));
+            }
+        }
+    }
 
     state.mcp.call_on_server(&server_id, &tool_name, args).await
 }

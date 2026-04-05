@@ -13,7 +13,7 @@ use aisdk::providers::OpenAICompatible;
 use async_trait::async_trait;
 use futures::Stream;
 use futures_util::StreamExt;
-use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue};
+use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, USER_AGENT, HeaderMap, HeaderValue};
 use schemars::Schema;
 use serde_json::{Value, json};
 use std::pin::Pin;
@@ -44,6 +44,14 @@ impl OpenAiCompatibleProvider {
                 .map_err(|e| KernelError::Message(e.to_string()))?,
         );
         h.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+        
+        // Spoof Tongyi Lingma IDE User-Agent globally or for dashscope
+        if self.base_url.contains("dashscope") {
+            h.insert(USER_AGENT, HeaderValue::from_static("zh-CN; IDE/1.49.1; TongyiLingma/1.0.0"));
+        } else {
+            h.insert(USER_AGENT, HeaderValue::from_static("z-claw/0.1.0"));
+        }
+        
         Ok(h)
     }
 

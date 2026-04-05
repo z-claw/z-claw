@@ -25,6 +25,7 @@ impl MemoryEngine {
             CREATE TABLE IF NOT EXISTS sessions (
                 id TEXT PRIMARY KEY,
                 title TEXT NOT NULL,
+                agent_id TEXT NOT NULL DEFAULT 'DefaultAgent',
                 created_ms INTEGER NOT NULL,
                 updated_ms INTEGER NOT NULL
             );
@@ -61,17 +62,21 @@ impl MemoryEngine {
             );
             ",
         )?;
+        
+        // Ensure migration for older tables (ignore failure if column exists)
+        let _ = conn.execute("ALTER TABLE sessions ADD COLUMN agent_id TEXT NOT NULL DEFAULT 'DefaultAgent'", []);
+
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
         })
     }
 
-    pub fn upsert_session(&self, id: &str, title: &str, now_ms: i64) -> Result<()> {
+    pub fn upsert_session(&self, id: &str, title: &str, agent_id: &str, now_ms: i64) -> Result<()> {
         let c = self.conn.lock();
         c.execute(
-            "INSERT INTO sessions (id, title, created_ms, updated_ms) VALUES (?1, ?2, ?3, ?3)
+            "INSERT INTO sessions (id, title, agent_id, created_ms, updated_ms) VALUES (?1, ?2, ?3, ?4, ?4)
              ON CONFLICT(id) DO UPDATE SET title=excluded.title, updated_ms=excluded.updated_ms",
-            params![id, title, now_ms],
+            params![id, title, agent_id, now_ms],
         )?;
         Ok(())
     }
@@ -126,11 +131,11 @@ impl MemoryEngine {
         Ok(())
     }
 
-    pub fn list_sessions(&self) -> Result<Vec<(String, String, i64)>> {
+    pub fn list_sessions(&self, agent_id: &str) -> Result<Vec<(String, String, i64)>> {
         let c = self.conn.lock();
         let mut stmt =
-            c.prepare("SELECT id, title, updated_ms FROM sessions ORDER BY updated_ms DESC")?;
-        let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+            c.prepare("SELECT id, title, updated_ms FROM sessions WHERE agent_id = ?1 ORDER BY updated_ms DESC")?;
+        let rows = stmt.query_map(params![agent_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
         let mut out = vec![];
         for row in rows {
             out.push(row?);

@@ -12,6 +12,7 @@ pub mod policy;
 pub mod protocol;
 pub mod provider;
 pub mod scheduler;
+pub mod workspace;
 
 pub use config::AppConfig;
 pub use error::{KernelError, Result};

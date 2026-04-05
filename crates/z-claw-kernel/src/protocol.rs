@@ -59,6 +59,18 @@ pub enum UiCommand {
         target_agent_id: String,
         instruction: String,
     },
+    /// Respond to a pending tool execution approval.
+    RespondToolApproval {
+        approval_id: String,
+        approved: bool,
+    },
+    ListAgents,
+    SetActiveAgent {
+        agent_id: String,
+    },
+    CreateAgentProfile {
+        agent_id: String,
+    },
     MemoryRecall {
         session_id: String,
         query: String,
@@ -127,6 +139,16 @@ pub enum KernelEvent {
         tool_name: String,
         ok: bool,
         summary: String,
+    },
+    ToolApprovalRequested {
+        approval_id: String,
+        session_id: String,
+        tool_name: String,
+        arguments_json: String,
+    },
+    AgentsList {
+        agents: Vec<String>,
+        active: String,
     },
     PolicyBlocked {
         /// Machine-readable category for UI and logs.

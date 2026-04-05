@@ -14,10 +14,12 @@ use crate::scheduler::JobScheduler;
 use delegate::{queue_delegate_command, start_delegate_worker_loop};
 use parking_lot::RwLock;
 use serde_json::json;
+use std::collections::HashMap;
 use std::sync::Arc;
 use swarm::run_swarm_command;
 use turn::{emit_mcp_summary, run_model_turn};
 use uuid::Uuid;
+use crate::workspace::WorkspaceManager;
 
 /// 可从磁盘热重载的字段（见 `GetConfigSnapshot` / `try_reload_runtime_from_disk`）。
 pub struct RuntimeSettings {
@@ -34,6 +36,9 @@ pub struct KernelState {
     pub policy: PolicyEngine,
     pub mcp: Arc<McpPool>,
     pub bus: AgentMessageBus,
+    pub workspace_manager: WorkspaceManager,
+    pub active_agent_id: RwLock<String>,
+    pub pending_approvals: RwLock<HashMap<String, tokio::sync::oneshot::Sender<bool>>>,
     pub event_tx: crossbeam_channel::Sender<KernelEvent>,
     pub workspace_root: Option<String>,
 }
@@ -100,6 +105,8 @@ pub async fn run_kernel_loop(
         default_mcp_server,
     });
 
+    let workspace_manager = WorkspaceManager::new(&base);
+
     let state = Arc::new(KernelState {
         runtime,
         memory,
@@ -107,6 +114,9 @@ pub async fn run_kernel_loop(
         policy,
         mcp,
         bus,
+        workspace_manager,
+        active_agent_id: RwLock::new("DefaultAgent".to_string()),
+        pending_approvals: RwLock::new(HashMap::new()),
         event_tx: event_tx.clone(),
         workspace_root: std::env::var("Z_CLAW_WORKSPACE").ok(),
     });
@@ -244,16 +254,18 @@ async fn handle_command(state: &Arc<KernelState>, cmd: UiCommand) -> Result<()> 
     match cmd {
         UiCommand::Shutdown => std::process::exit(0),
         UiCommand::CreateSession { title } => {
+            let active = state.active_agent_id.read().clone();
             let id = Uuid::new_v4().to_string();
             let title = title.unwrap_or_else(|| "New session".into());
             let now = chrono::Utc::now().timestamp_millis();
-            state.memory.upsert_session(&id, &title, now)?;
+            state.memory.upsert_session(&id, &title, &active, now)?;
             let _ = state
                 .event_tx
                 .send(KernelEvent::SessionCreated { id, title });
         }
         UiCommand::ListSessions => {
-            let rows = state.memory.list_sessions()?;
+            let active = state.active_agent_id.read().clone();
+            let rows = state.memory.list_sessions(&active)?;
             let sessions = rows
                 .into_iter()
                 .map(|(id, title, updated_at_ms)| SessionSummary {
@@ -426,6 +438,47 @@ async fn handle_command(state: &Arc<KernelState>, cmd: UiCommand) -> Result<()> 
                 entry_id,
                 removed,
             });
+        }
+        UiCommand::RespondToolApproval { approval_id, approved } => {
+            if let Some(tx) = state.pending_approvals.write().remove(&approval_id) {
+                let _ = tx.send(approved);
+            } else {
+                tracing::warn!("RespondToolApproval: no pending approval found for {}", approval_id);
+            }
+        }
+        UiCommand::ListAgents => {
+            let agents = state.workspace_manager.list_agents().unwrap_or_default();
+            let active = state.active_agent_id.read().clone();
+            let _ = state.event_tx.send(KernelEvent::AgentsList { agents, active });
+        }
+        UiCommand::SetActiveAgent { agent_id } => {
+            if state.workspace_manager.load_agent_profile(&agent_id).is_ok() {
+                *state.active_agent_id.write() = agent_id.clone();
+                
+                let agents = state.workspace_manager.list_agents().unwrap_or_default();
+                let active = state.active_agent_id.read().clone();
+                let _ = state.event_tx.send(KernelEvent::AgentsList { agents, active: active.clone() });
+                
+                let rows = state.memory.list_sessions(&active).unwrap_or_default();
+                let sessions = rows
+                    .into_iter()
+                    .map(|(id, title, updated_at_ms)| SessionSummary {
+                        id,
+                        title,
+                        updated_at_ms,
+                    })
+                    .collect();
+                let _ = state.event_tx.send(KernelEvent::SessionsList { sessions });
+            }
+        }
+        UiCommand::CreateAgentProfile { agent_id } => {
+            if state.workspace_manager.create_agent_profile(&agent_id).is_ok() {
+                *state.active_agent_id.write() = agent_id;
+                
+                let agents = state.workspace_manager.list_agents().unwrap_or_default();
+                let active = state.active_agent_id.read().clone();
+                let _ = state.event_tx.send(KernelEvent::AgentsList { agents, active });
+            }
         }
     }
     Ok(())
