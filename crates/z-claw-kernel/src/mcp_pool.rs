@@ -210,10 +210,8 @@ async fn run_mcp_worker(def: McpServerDef, mut rx: mpsc::Receiver<McpWorkerMsg>)
                                     None => format!("{}::{}", def.id, t.name),
                                 };
                                 let schema = t.schema_as_json_value();
-                                let description = t
-                                    .description
-                                    .map(|d| d.to_string())
-                                    .unwrap_or_default();
+                                let description =
+                                    t.description.map(|d| d.to_string()).unwrap_or_default();
                                 ToolDefinition {
                                     name,
                                     description,

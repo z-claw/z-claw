@@ -55,9 +55,6 @@ pub fn merge_swarm_results(strategy: MergeStrategy, parts: &[(String, String)]) 
             .map(|(label, text)| format!("## {label}\n{text}\n"))
             .collect::<Vec<_>>()
             .join("\n"),
-        MergeStrategy::TakeFirst => parts
-            .first()
-            .map(|(_, t)| t.clone())
-            .unwrap_or_default(),
+        MergeStrategy::TakeFirst => parts.first().map(|(_, t)| t.clone()).unwrap_or_default(),
     }
 }

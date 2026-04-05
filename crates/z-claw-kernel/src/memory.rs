@@ -76,7 +76,14 @@ impl MemoryEngine {
         Ok(())
     }
 
-    pub fn append_message(&self, id: &str, session_id: &str, role: &str, content: &str, now_ms: i64) -> Result<()> {
+    pub fn append_message(
+        &self,
+        id: &str,
+        session_id: &str,
+        role: &str,
+        content: &str,
+        now_ms: i64,
+    ) -> Result<()> {
         let c = self.conn.lock();
         c.execute(
             "INSERT INTO messages (id, session_id, role, content, created_ms) VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -106,8 +113,14 @@ impl MemoryEngine {
     pub fn delete_session(&self, session_id: &str) -> Result<()> {
         let c = self.conn.lock();
         let tx = c.unchecked_transaction()?;
-        tx.execute("DELETE FROM messages WHERE session_id = ?1", params![session_id])?;
-        tx.execute("DELETE FROM episodic WHERE session_id = ?1", params![session_id])?;
+        tx.execute(
+            "DELETE FROM messages WHERE session_id = ?1",
+            params![session_id],
+        )?;
+        tx.execute(
+            "DELETE FROM episodic WHERE session_id = ?1",
+            params![session_id],
+        )?;
         tx.execute("DELETE FROM sessions WHERE id = ?1", params![session_id])?;
         tx.commit()?;
         Ok(())
@@ -115,7 +128,8 @@ impl MemoryEngine {
 
     pub fn list_sessions(&self) -> Result<Vec<(String, String, i64)>> {
         let c = self.conn.lock();
-        let mut stmt = c.prepare("SELECT id, title, updated_ms FROM sessions ORDER BY updated_ms DESC")?;
+        let mut stmt =
+            c.prepare("SELECT id, title, updated_ms FROM sessions ORDER BY updated_ms DESC")?;
         let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
         let mut out = vec![];
         for row in rows {
@@ -193,18 +207,30 @@ impl MemoryEngine {
         Ok(true)
     }
 
-    pub fn load_recent_messages(&self, session_id: &str, limit: usize) -> Result<Vec<(String, String)>> {
+    pub fn load_recent_messages(
+        &self,
+        session_id: &str,
+        limit: usize,
+    ) -> Result<Vec<(String, String)>> {
         let c = self.conn.lock();
         let mut stmt = c.prepare(
             "SELECT role, content FROM messages WHERE session_id = ?1 ORDER BY created_ms DESC LIMIT ?2",
         )?;
-        let rows = stmt.query_map(params![session_id, limit as i64], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        let rows = stmt.query_map(params![session_id, limit as i64], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })?;
         let mut out: Vec<_> = rows.filter_map(|x| x.ok()).collect();
         out.reverse();
         Ok(out)
     }
 
-    pub fn store_episodic(&self, id: &str, session_id: &str, summary: &str, now_ms: i64) -> Result<()> {
+    pub fn store_episodic(
+        &self,
+        id: &str,
+        session_id: &str,
+        summary: &str,
+        now_ms: i64,
+    ) -> Result<()> {
         let c = self.conn.lock();
         c.execute(
             "INSERT INTO episodic (id, session_id, summary, created_ms) VALUES (?1, ?2, ?3, ?4)",
@@ -226,17 +252,26 @@ impl MemoryEngine {
         Ok(())
     }
 
-    pub fn forget_knowledge(&self, entry_id: &str) -> Result<()> {
+    /// Marks knowledge as deleted. Returns `true` if a row was updated (was not already deleted).
+    pub fn forget_knowledge(&self, entry_id: &str) -> Result<bool> {
         let c = self.conn.lock();
-        c.execute(
-            "UPDATE knowledge SET deleted = 1 WHERE id = ?1",
+        let n = c.execute(
+            "UPDATE knowledge SET deleted = 1 WHERE id = ?1 AND deleted = 0",
             params![entry_id],
         )?;
-        c.execute("DELETE FROM knowledge_fts WHERE kid = ?1", params![entry_id])?;
-        Ok(())
+        c.execute(
+            "DELETE FROM knowledge_fts WHERE kid = ?1",
+            params![entry_id],
+        )?;
+        Ok(n > 0)
     }
 
-    pub fn upsert_project_intel(&self, workspace_root: &str, summary: &str, now_ms: i64) -> Result<()> {
+    pub fn upsert_project_intel(
+        &self,
+        workspace_root: &str,
+        summary: &str,
+        now_ms: i64,
+    ) -> Result<()> {
         let c = self.conn.lock();
         c.execute(
             "INSERT INTO project_intel (workspace_root, summary, updated_ms) VALUES (?1, ?2, ?3)
@@ -281,18 +316,22 @@ impl MemoryEngine {
         let q = query.trim();
         if !q.is_empty() {
             let mut stmt = c.prepare(
-                "SELECT k.title, k.body FROM knowledge_fts f
+                "SELECT k.id, k.title, k.body FROM knowledge_fts f
                  JOIN knowledge k ON k.id = f.kid AND k.deleted = 0
                  WHERE f MATCH ?1
                  ORDER BY rank LIMIT 12",
             )?;
             let q_fts = escape_fts5_query(q);
             let rows = stmt.query_map(params![q_fts], |r| {
-                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                ))
             })?;
             for row in rows {
-                let (t, b) = row?;
-                let s = format!("[knowledge] {t}: {b}");
+                let (kid, t, b) = row?;
+                let s = format!("[knowledge · id={kid}]\n{t}: {b}");
                 if used + s.len() > budget_chars {
                     break;
                 }
@@ -341,9 +380,5 @@ fn escape_fts5_query(q: &str) -> String {
         out.push_str("\"*");
         out.push('"');
     }
-    if out.is_empty() {
-        "\"\"".into()
-    } else {
-        out
-    }
+    if out.is_empty() { "\"\"".into() } else { out }
 }

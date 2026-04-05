@@ -175,6 +175,17 @@ export function summarizeKernelEvent(payload: Record<string, unknown>): {
         tone: "success",
       };
     }
+    case "MemoryForgotten": {
+      const v = raw as { entry_id?: string; removed?: boolean };
+      const ok = v.removed === true;
+      return {
+        label: "记忆",
+        detail: ok
+          ? `已遗忘 ${v.entry_id ?? ""}`
+          : `未找到活动条目 ${v.entry_id ?? ""}`,
+        tone: ok ? "success" : "warning",
+      };
+    }
     case "AuditEntry": {
       const v = raw as {
         line?: string;

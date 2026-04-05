@@ -1,7 +1,7 @@
 use crate::config::PolicyConfig;
 use crate::error::{KernelError, Result};
 use crate::protocol::{AuditKind, AuditRecord, SchedulePayload};
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
 use std::collections::VecDeque;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -9,16 +9,20 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Clone)]
 pub struct PolicyEngine {
-    cfg: PolicyConfig,
+    cfg: Arc<RwLock<PolicyConfig>>,
     audit: Arc<Mutex<VecDeque<AuditRecord>>>,
 }
 
 impl PolicyEngine {
     pub fn new(cfg: PolicyConfig) -> Self {
         Self {
-            cfg,
+            cfg: Arc::new(RwLock::new(cfg)),
             audit: Arc::new(Mutex::new(VecDeque::with_capacity(256))),
         }
+    }
+
+    pub fn replace_cfg(&self, cfg: PolicyConfig) {
+        *self.cfg.write() = cfg;
     }
 
     fn now_ms() -> i64 {
@@ -47,13 +51,9 @@ impl PolicyEngine {
         q.drain(..take).collect()
     }
 
-    pub fn validate_tool_call(
-        &self,
-        tool_name: &str,
-        arguments: &serde_json::Value,
-    ) -> Result<()> {
-        if self
-            .cfg
+    pub fn validate_tool_call(&self, tool_name: &str, arguments: &serde_json::Value) -> Result<()> {
+        let cfg = self.cfg.read();
+        if cfg
             .blocked_tool_names
             .iter()
             .any(|b| b.eq_ignore_ascii_case(tool_name))
@@ -62,16 +62,15 @@ impl PolicyEngine {
             self.push_audit(AuditKind::Policy, &reason);
             return Err(KernelError::PolicyDenied(reason));
         }
+        drop(cfg);
         self.validate_path_arguments(arguments)?;
-        self.push_audit(
-            AuditKind::Tool,
-            format!("tool allowed: {tool_name}"),
-        );
+        self.push_audit(AuditKind::Tool, format!("tool allowed: {tool_name}"));
         Ok(())
     }
 
     fn validate_path_arguments(&self, arguments: &serde_json::Value) -> Result<()> {
-        let prefixes = &self.cfg.allowed_path_prefixes;
+        let cfg = self.cfg.read();
+        let prefixes = &cfg.allowed_path_prefixes;
         if prefixes.is_empty() {
             return Ok(());
         }
@@ -93,26 +92,23 @@ impl PolicyEngine {
         cron_expr: &str,
         payload: &SchedulePayload,
     ) -> Result<()> {
+        let cfg = self.cfg.read();
         if payload.prompt.trim().is_empty() {
             let msg = "empty schedule prompt";
             self.push_audit(AuditKind::Schedule, msg);
             return Err(KernelError::PolicyDenied(msg.into()));
         }
-        let schedule = cron::Schedule::from_str(cron_expr).map_err(|e| {
-            KernelError::InvalidCron(format!("{cron_expr}: {e}"))
-        })?;
-        let upcoming: Vec<_> = schedule
-            .upcoming(chrono::Utc)
-            .take(2)
-            .collect();
+        let schedule = cron::Schedule::from_str(cron_expr)
+            .map_err(|e| KernelError::InvalidCron(format!("{cron_expr}: {e}")))?;
+        let upcoming: Vec<_> = schedule.upcoming(chrono::Utc).take(2).collect();
         if upcoming.len() >= 2 {
             let a = upcoming[0].timestamp();
             let b = upcoming[1].timestamp();
             let gap = (b - a).unsigned_abs();
-            if gap < self.cfg.min_schedule_interval_sec {
+            if gap < cfg.min_schedule_interval_sec {
                 let reason = format!(
                     "schedule interval {gap}s < min {}s",
-                    self.cfg.min_schedule_interval_sec
+                    cfg.min_schedule_interval_sec
                 );
                 self.push_audit(AuditKind::Schedule, &reason);
                 return Err(KernelError::PolicyDenied(reason));
@@ -123,7 +119,7 @@ impl PolicyEngine {
     }
 
     pub fn max_swarm_tasks(&self) -> usize {
-        self.cfg.max_swarm_tasks.max(1)
+        self.cfg.read().max_swarm_tasks.max(1)
     }
 }
 

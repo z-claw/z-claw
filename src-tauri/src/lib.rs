@@ -2,7 +2,7 @@
 
 use tauri::{AppHandle, Emitter, Manager};
 use z_claw_kernel::protocol::UiCommand;
-use z_claw_kernel::{spawn_kernel, AppConfig};
+use z_claw_kernel::{AppConfig, spawn_kernel};
 
 #[derive(Clone)]
 pub struct KernelBridge {

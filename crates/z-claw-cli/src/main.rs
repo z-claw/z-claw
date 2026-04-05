@@ -13,9 +13,9 @@ async fn run_doctor() -> z_claw_kernel::Result<()> {
     let cfg = AppConfig::load_or_default();
     let mcp = Arc::new(McpPool::new(cfg.mcp_servers.clone()));
     let _ = mcp.connect_all_non_lazy().await;
-    let provider_opt = z_claw_kernel::orchestrator::resolve_provider_and_model(&cfg)
+    let provider_opt = z_claw_kernel::orchestrator::resolve_llm_routing(&cfg)
         .ok()
-        .map(|(p, _)| p);
+        .and_then(|(chain, _)| chain.into_iter().next().map(|(p, _)| p));
     let provider_ref = provider_opt.as_ref().map(|a| a.as_ref());
     z_claw_kernel::health::run_and_print_health(&cfg, provider_ref, mcp.as_ref()).await
 }

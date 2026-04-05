@@ -1,12 +1,20 @@
 //! OpenAI-compatible HTTP client (`/chat/completions`, streaming SSE, `/models` health ping).
+//! 非流式、无 tools 的补全走 **aisdk** `OpenAICompatible`；主对话流式、工具调用与含 `tool_calls` 的多轮历史仍用 **reqwest**（aisdk 的 `Message` 无法表达单条 assistant 多 tool_calls，且流式 tool delta 不带 index）。
 //! 仅配置即可对接的厂商见仓库 `docs/adding-openai-compatible-provider.md`。
 
 use crate::error::{KernelError, Result};
-use crate::provider::{ChatProvider, ChatRequest, StreamChunk, ToolCallFragment};
+use crate::provider::{ChatProvider, ChatRequest, StreamChunk, ToolCallFragment, ToolDefinition};
+use aisdk::core::language_model::{LanguageModelOptions, LanguageModelResponseContentType};
+use aisdk::core::tools::{Tool, ToolExecute, ToolResultInfo};
+use aisdk::core::{
+    DynamicModel, LanguageModel, LanguageModelRequest, Message, Messages,
+};
+use aisdk::providers::OpenAICompatible;
 use async_trait::async_trait;
 use futures::Stream;
 use futures_util::StreamExt;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue};
+use schemars::Schema;
 use serde_json::{Value, json};
 use std::pin::Pin;
 
@@ -86,12 +94,7 @@ impl OpenAiCompatibleProvider {
     /// Lightweight GET `{base}/models` for health checks (OpenAI-compatible).
     pub async fn ping_models(&self) -> Result<String> {
         let url = format!("{}/models", self.base_url);
-        let res = self
-            .client
-            .get(url)
-            .headers(self.headers()?)
-            .send()
-            .await?;
+        let res = self.client.get(url).headers(self.headers()?).send().await?;
         let status = res.status();
         if !status.is_success() {
             let t = res.text().await.unwrap_or_default();
@@ -101,6 +104,112 @@ impl OpenAiCompatibleProvider {
         }
         Ok(format!("GET /models -> {status}"))
     }
+
+    /// 单次非流式补全（`stream: false`）。用于 Delegate / Swarm 等无工具场景，经 **aisdk** 调用 OpenAI 兼容接口。
+    pub async fn chat_complete(&self, request: ChatRequest) -> Result<String> {
+        if request.stream {
+            return Err(KernelError::Message(
+                "chat_complete expects request.stream == false".into(),
+            ));
+        }
+        let provider = OpenAICompatible::<DynamicModel>::builder()
+            .base_url(self.base_url.clone())
+            .api_key(self.api_key.clone())
+            .model_name(request.model.clone())
+            .build()
+            .map_err(|e| KernelError::Message(e.to_string()))?;
+
+        let messages = chat_messages_to_aisdk(&request.messages)?;
+        let mut b = LanguageModelRequest::builder()
+            .model(provider)
+            .messages(messages);
+        for t in &request.tools {
+            b = b.with_tool(tool_def_to_aisdk(t)?);
+        }
+        let built = b.build();
+        let opts = LanguageModelOptions::clone(&*built);
+        let mut model = built.model;
+        let resp = model
+            .generate_text(opts)
+            .await
+            .map_err(|e| KernelError::Message(e.to_string()))?;
+        aisdk_response_to_text(resp.contents)
+    }
+}
+
+fn tool_def_to_aisdk(t: &ToolDefinition) -> Result<Tool> {
+    let input_schema: Schema = serde_json::from_value(t.parameters_json.clone()).unwrap_or_else(|_| {
+        serde_json::from_value(json!({
+            "type": "object",
+            "properties": {}
+        }))
+        .unwrap_or_else(|_| true.into())
+    });
+    Ok(Tool {
+        name: t.name.clone(),
+        description: t.description.clone(),
+        input_schema,
+        execute: ToolExecute::new(Box::new(|_| Ok(String::new()))),
+    })
+}
+
+fn chat_messages_to_aisdk(msgs: &[crate::provider::ChatMessage]) -> Result<Messages> {
+    let mut out: Messages = Vec::new();
+    for m in msgs {
+        match m.role.as_str() {
+            "system" => out.push(Message::System(m.content.clone().into())),
+            "user" => out.push(Message::User(m.content.clone().into())),
+            "assistant" => {
+                if m.tool_calls.is_some() {
+                    return Err(KernelError::Message(
+                        "aisdk chat path does not support assistant messages with tool_calls"
+                            .into(),
+                    ));
+                }
+                out.push(Message::Assistant(m.content.clone().into()));
+            }
+            "tool" => {
+                let mut tr = ToolResultInfo::new("");
+                if let Some(id) = &m.tool_call_id {
+                    tr.id(id.clone());
+                }
+                let parsed: Value = serde_json::from_str(&m.content)
+                    .unwrap_or_else(|_| Value::String(m.content.clone()));
+                tr.output(parsed);
+                out.push(Message::Tool(tr));
+            }
+            role => {
+                return Err(KernelError::Message(format!(
+                    "unknown chat message role for aisdk: {role}"
+                )));
+            }
+        }
+    }
+    Ok(out)
+}
+
+fn aisdk_response_to_text(contents: Vec<LanguageModelResponseContentType>) -> Result<String> {
+    let mut out = String::new();
+    for c in contents {
+        match c {
+            LanguageModelResponseContentType::Text(t) => out.push_str(&t),
+            LanguageModelResponseContentType::ToolCall(tc) => {
+                use std::fmt::Write as _;
+                let _ = write!(
+                    out,
+                    "\n[tool {} id={}]\n{}",
+                    tc.tool.name,
+                    tc.tool.id,
+                    tc.input
+                );
+            }
+            LanguageModelResponseContentType::Reasoning { content, .. } => out.push_str(&content),
+            LanguageModelResponseContentType::NotSupported(msg) => {
+                return Err(KernelError::Message(msg));
+            }
+        }
+    }
+    Ok(out)
 }
 
 #[async_trait]
@@ -127,10 +236,7 @@ impl ChatProvider for OpenAiCompatibleProvider {
             let v: Value = res.json().await?;
             let choice = &v["choices"][0];
             let message = &choice["message"];
-            let content = message["content"]
-                .as_str()
-                .unwrap_or("")
-                .to_string();
+            let content = message["content"].as_str().unwrap_or("").to_string();
             let mut tool_frags = vec![];
             if let Some(arr) = message["tool_calls"].as_array() {
                 for (i, tc) in arr.iter().enumerate() {

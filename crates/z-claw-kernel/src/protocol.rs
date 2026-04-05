@@ -6,7 +6,9 @@ use serde_json::Value;
 pub enum UiCommand {
     Shutdown,
     /// Create a new chat session.
-    CreateSession { title: Option<String> },
+    CreateSession {
+        title: Option<String>,
+    },
     /// Send a user message and run one model turn (may include tools).
     SendMessage {
         session_id: String,
@@ -42,7 +44,9 @@ pub enum UiCommand {
         timezone: String,
         payload: SchedulePayload,
     },
-    ScheduleRemove { job_id: String },
+    ScheduleRemove {
+        job_id: String,
+    },
     ScheduleList,
     /// Run a swarm of sub-tasks and merge results (policy-bounded).
     RunSwarm {
@@ -60,7 +64,9 @@ pub enum UiCommand {
         query: String,
         budget_tokens: u32,
     },
-    MemoryForget { entry_id: String },
+    MemoryForget {
+        entry_id: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -79,7 +85,9 @@ pub struct SwarmSubTask {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum KernelEvent {
     Ready,
-    Error { message: String },
+    Error {
+        message: String,
+    },
     SessionCreated {
         id: String,
         title: String,
@@ -129,8 +137,12 @@ pub enum KernelEvent {
     McpToolsUpdated {
         servers: Vec<McpServerToolsSummary>,
     },
-    ScheduleJobAdded { job_id: String },
-    ScheduleJobRemoved { job_id: String },
+    ScheduleJobAdded {
+        job_id: String,
+    },
+    ScheduleJobRemoved {
+        job_id: String,
+    },
     ScheduleList {
         jobs: Vec<ScheduledJobSummary>,
     },
@@ -151,6 +163,11 @@ pub enum KernelEvent {
     MemoryRecalled {
         session_id: String,
         snippets: Vec<String>,
+    },
+    MemoryForgotten {
+        entry_id: String,
+        /// True if an active knowledge row was soft-deleted.
+        removed: bool,
     },
     AuditEntry {
         record: AuditRecord,

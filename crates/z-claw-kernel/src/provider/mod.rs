@@ -1,5 +1,7 @@
 mod openai;
+mod routing;
 pub use openai::OpenAiCompatibleProvider;
+pub use routing::{chat_complete_with_fallback, chat_stream_with_fallback};
 
 use crate::error::Result;
 use async_trait::async_trait;

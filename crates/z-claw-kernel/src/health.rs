@@ -1,10 +1,10 @@
 //! OpenClaw-style `doctor`: config path, data dir, provider env/API, MCP servers.
 
-use crate::config::{AppConfig, config_file_path};
+use crate::config::{AppConfig, config_file_path, parse_config_bytes};
 use crate::error::Result;
 use crate::mcp_pool::McpPool;
-use crate::provider::OpenAiCompatibleProvider;
 use crate::protocol::HealthCheckItem;
+use crate::provider::OpenAiCompatibleProvider;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub async fn collect_health_report(
@@ -18,15 +18,20 @@ pub async fn collect_health_report(
     let path_s = path.display().to_string();
     match std::fs::read(&path) {
         Ok(bytes) => {
-            let parse_ok = serde_json::from_slice::<crate::config::AppConfig>(&bytes).is_ok();
+            let parsed = parse_config_bytes(&bytes);
+            let parse_ok = parsed.is_ok();
+            let detail = match &parsed {
+                Ok(_) => format!("readable and valid JSON ({path_s})"),
+                Err(e) => format!(
+                    "JSON parse error ({path_s}): {e}. \
+                     If you used Notepad, save as UTF-8 (we strip BOM). \
+                     No // comments or trailing commas. See config.example.json."
+                ),
+            };
             items.push(HealthCheckItem {
                 id: "config_file".into(),
                 ok: parse_ok,
-                detail: if parse_ok {
-                    format!("readable and valid JSON ({path_s})")
-                } else {
-                    format!("file exists but JSON invalid ({path_s})")
-                },
+                detail,
             });
         }
         Err(e) => {
@@ -44,34 +49,32 @@ pub async fn collect_health_report(
         .or(cfg.providers.first().map(|p| p.id.as_str()));
     let prov = pid.and_then(|id| cfg.providers.iter().find(|p| p.id == id));
     if let Some(p) = prov {
-        let env_ok = match std::env::var(&p.api_key_env) {
-            Ok(v) if !v.trim().is_empty() => {
-                items.push(HealthCheckItem {
-                    id: "provider_api_key_env".into(),
-                    ok: true,
-                    detail: format!("{} is set", p.api_key_env),
-                });
-                true
-            }
-            Ok(_) => {
-                items.push(HealthCheckItem {
-                    id: "provider_api_key_env".into(),
-                    ok: false,
-                    detail: format!("{} is empty", p.api_key_env),
-                });
-                false
-            }
-            Err(_) => {
-                items.push(HealthCheckItem {
-                    id: "provider_api_key_env".into(),
-                    ok: false,
-                    detail: format!("{} is not set", p.api_key_env),
-                });
-                false
-            }
-        };
+        let env_set = std::env::var(&p.api_key_env)
+            .ok()
+            .is_some_and(|v| !v.trim().is_empty());
+        let file_key = p
+            .api_key
+            .as_ref()
+            .is_some_and(|k| !k.trim().is_empty());
+        let credential_ok = env_set || file_key;
 
-        if env_ok {
+        let cred_detail = if env_set {
+            format!("{} is set (takes precedence over file)", p.api_key_env)
+        } else if file_key {
+            "using api_key from config file (env not set or empty)".into()
+        } else {
+            format!(
+                "{} not set / empty and no \"api_key\" in config for this provider",
+                p.api_key_env
+            )
+        };
+        items.push(HealthCheckItem {
+            id: "provider_api_key_env".into(),
+            ok: credential_ok,
+            detail: cred_detail,
+        });
+
+        if credential_ok {
             match provider {
                 Some(pr) => match pr.ping_models().await {
                     Ok(msg) => {

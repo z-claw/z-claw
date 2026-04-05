@@ -1,35 +1,66 @@
-use crate::config::{snapshot_for_ui, AppConfig};
+mod delegate;
+mod swarm;
+mod turn;
+
+use crate::config::{AppConfig, reload_from_disk, snapshot_for_ui};
 use crate::error::{KernelError, Result};
-use crate::memory::MemoryEngine;
 use crate::mcp_pool::McpPool;
-use crate::multi_agent::{self, AgentMessageBus, MergeStrategy};
+use crate::memory::MemoryEngine;
+use crate::multi_agent::AgentMessageBus;
 use crate::policy::PolicyEngine;
-use crate::provider::{
-    ChatMessage, ChatProvider, ChatRequest, OpenAiCompatibleProvider, ResolvedToolCall,
-    ToolDefinition,
-};
-use crate::protocol::{
-    HistoryMessage, KernelEvent, PolicyBlockCode, SessionSummary, SwarmSubTask, UiCommand,
-};
+use crate::protocol::{HistoryMessage, KernelEvent, PolicyBlockCode, SessionSummary, UiCommand};
+use crate::provider::OpenAiCompatibleProvider;
 use crate::scheduler::JobScheduler;
-use futures_util::StreamExt;
-use serde_json::{Value, json};
-use std::collections::BTreeMap;
+use delegate::{queue_delegate_command, start_delegate_worker_loop};
+use parking_lot::RwLock;
+use serde_json::json;
 use std::sync::Arc;
+use swarm::run_swarm_command;
+use turn::{emit_mcp_summary, run_model_turn};
 use uuid::Uuid;
 
-pub struct KernelState {
+/// 可从磁盘热重载的字段（见 `GetConfigSnapshot` / `try_reload_runtime_from_disk`）。
+pub struct RuntimeSettings {
     pub cfg: AppConfig,
+    pub llm_routing: Vec<(Arc<OpenAiCompatibleProvider>, String)>,
+    pub llm_routing_provider_ids: Vec<String>,
+    pub default_mcp_server: Option<String>,
+}
+
+pub struct KernelState {
+    pub runtime: RwLock<RuntimeSettings>,
     pub memory: MemoryEngine,
     pub scheduler: JobScheduler,
     pub policy: PolicyEngine,
     pub mcp: Arc<McpPool>,
     pub bus: AgentMessageBus,
-    pub provider: Arc<OpenAiCompatibleProvider>,
-    pub model: String,
     pub event_tx: crossbeam_channel::Sender<KernelEvent>,
     pub workspace_root: Option<String>,
-    pub default_mcp_server: Option<String>,
+}
+
+pub(super) fn try_reload_runtime_from_disk(state: &KernelState) -> Result<()> {
+    let new_cfg = reload_from_disk()?;
+    let (routing, ids) = resolve_llm_routing(&new_cfg)?;
+    let dmc = new_cfg.mcp_servers.first().map(|s| s.id.clone());
+    let primary_base = new_cfg
+        .default_provider_id
+        .as_deref()
+        .or(new_cfg.providers.first().map(|p| p.id.as_str()))
+        .and_then(|pid| new_cfg.providers.iter().find(|p| p.id == pid).map(|p| p.base_url.clone()));
+    {
+        let mut w = state.runtime.write();
+        w.cfg = new_cfg.clone();
+        w.llm_routing = routing;
+        w.llm_routing_provider_ids = ids;
+        w.default_mcp_server = dmc;
+    }
+    state.policy.replace_cfg(new_cfg.policy);
+    tracing::info!(
+        path = %crate::config::config_file_path().display(),
+        ?primary_base,
+        "config hot-reload applied"
+    );
+    Ok(())
 }
 
 pub async fn run_kernel_loop(
@@ -60,22 +91,27 @@ pub async fn run_kernel_loop(
     let _ = mcp.refresh_all_tools().await;
     let bus = AgentMessageBus::new(256);
 
-    let (provider, model) = resolve_provider_and_model(&cfg)?;
+    let (llm_routing, llm_routing_provider_ids) = resolve_llm_routing(&cfg)?;
     let default_mcp_server = cfg.mcp_servers.first().map(|s| s.id.clone());
+    let runtime = RwLock::new(RuntimeSettings {
+        cfg: cfg.clone(),
+        llm_routing,
+        llm_routing_provider_ids,
+        default_mcp_server,
+    });
 
     let state = Arc::new(KernelState {
-        cfg: cfg.clone(),
+        runtime,
         memory,
         scheduler,
         policy,
         mcp,
         bus,
-        provider,
-        model,
         event_tx: event_tx.clone(),
         workspace_root: std::env::var("Z_CLAW_WORKSPACE").ok(),
-        default_mcp_server,
     });
+
+    start_delegate_worker_loop(state.clone());
 
     let _ = event_tx.send(KernelEvent::Ready);
 
@@ -116,32 +152,80 @@ pub async fn run_kernel_loop(
     Ok(())
 }
 
-pub fn resolve_provider_and_model(cfg: &AppConfig) -> Result<(Arc<OpenAiCompatibleProvider>, String)> {
-    let pid = cfg
+/// 主提供商 + `routing.fallback_chain` 去重后的顺序；无密钥的备用在启动时跳过，主提供商密钥缺失则报错。
+pub fn resolve_llm_routing(
+    cfg: &AppConfig,
+) -> Result<(
+    Vec<(Arc<OpenAiCompatibleProvider>, String)>,
+    Vec<String>,
+)> {
+    let primary_id = cfg
         .default_provider_id
         .as_deref()
         .or(cfg.providers.first().map(|p| p.id.as_str()))
         .ok_or_else(|| KernelError::Message("no provider in config".into()))?;
-    let p = cfg
-        .providers
-        .iter()
-        .find(|x| x.id == pid)
-        .ok_or_else(|| KernelError::Message(format!("provider {pid} not found")))?;
-    let key = std::env::var(&p.api_key_env).map_err(|_| {
-        KernelError::Message(format!("set environment variable {}", p.api_key_env))
-    })?;
-    let model = cfg
-        .default_model
-        .clone()
-        .or(p.default_model.clone())
-        .ok_or_else(|| KernelError::Message("no default_model".into()))?;
-    Ok((
-        Arc::new(OpenAiCompatibleProvider::new(&p.base_url, key)),
-        model,
-    ))
+
+    let mut ordered_ids: Vec<String> = vec![];
+    let mut push_id = |id: &str| {
+        if !ordered_ids.iter().any(|x| x == id) {
+            ordered_ids.push(id.to_string());
+        }
+    };
+    push_id(primary_id);
+    for sid in &cfg.routing.fallback_chain {
+        if cfg.providers.iter().any(|p| p.id == *sid) {
+            push_id(sid);
+        } else {
+            tracing::warn!(
+                "routing.fallback_chain: unknown provider id {:?}, skipping",
+                sid
+            );
+        }
+    }
+
+    let mut chain = Vec::with_capacity(ordered_ids.len());
+    let mut ids_out = Vec::with_capacity(ordered_ids.len());
+    for (i, id) in ordered_ids.iter().enumerate() {
+        let p = cfg
+            .providers
+            .iter()
+            .find(|x| x.id == *id)
+            .expect("ordered_ids only contains known providers");
+        let key = match crate::config::resolve_provider_api_key(p) {
+            Ok(k) => k,
+            Err(e) => {
+                if i == 0 {
+                    return Err(e);
+                }
+                tracing::warn!(
+                    "routing: skip provider {} (no credentials: {})",
+                    id,
+                    e
+                );
+                continue;
+            }
+        };
+        let model = cfg
+            .default_model
+            .clone()
+            .or(p.default_model.clone())
+            .ok_or_else(|| KernelError::Message(format!("no default_model for provider {id}")))?;
+        chain.push((
+            Arc::new(OpenAiCompatibleProvider::new(&p.base_url, key)),
+            model,
+        ));
+        ids_out.push(id.clone());
+    }
+
+    if chain.is_empty() {
+        return Err(KernelError::Message(
+            "no usable LLM provider after resolving routing (check API keys)".into(),
+        ));
+    }
+    Ok((chain, ids_out))
 }
 
-fn classify_policy_denial(message: &str) -> PolicyBlockCode {
+pub(super) fn classify_policy_denial(message: &str) -> PolicyBlockCode {
     if message.contains("tool blocked by policy") {
         PolicyBlockCode::ToolBlocked
     } else if message.contains("path not under allowed prefix") {
@@ -178,9 +262,7 @@ async fn handle_command(state: &Arc<KernelState>, cmd: UiCommand) -> Result<()> 
                     updated_at_ms,
                 })
                 .collect();
-            let _ = state
-                .event_tx
-                .send(KernelEvent::SessionsList { sessions });
+            let _ = state.event_tx.send(KernelEvent::SessionsList { sessions });
         }
         UiCommand::LoadSessionHistory {
             session_id,
@@ -202,26 +284,38 @@ async fn handle_command(state: &Arc<KernelState>, cmd: UiCommand) -> Result<()> 
         UiCommand::RenameSession { session_id, title } => {
             let now = chrono::Utc::now().timestamp_millis();
             state.memory.rename_session(&session_id, &title, now)?;
-            let _ = state.event_tx.send(KernelEvent::SessionRenamed {
-                session_id,
-                title,
-            });
+            let _ = state
+                .event_tx
+                .send(KernelEvent::SessionRenamed { session_id, title });
         }
         UiCommand::DeleteSession { session_id } => {
             state.memory.delete_session(&session_id)?;
-            let _ = state.event_tx.send(KernelEvent::SessionDeleted { session_id });
+            let _ = state
+                .event_tx
+                .send(KernelEvent::SessionDeleted { session_id });
         }
         UiCommand::GetConfigSnapshot => {
-            let mut snapshot = snapshot_for_ui(&state.cfg);
+            let reload_err = try_reload_runtime_from_disk(state).err().map(|e| e.to_string());
+            let rt = state.runtime.read();
+            let mut snapshot = snapshot_for_ui(&rt.cfg);
             if let Some(obj) = snapshot.as_object_mut() {
-                obj.insert(
-                    "runtime".to_string(),
-                    json!({
-                        "model": state.model,
-                        "workspace_root": state.workspace_root,
-                        "default_mcp_server": state.default_mcp_server,
-                    }),
-                );
+                let primary_model = rt
+                    .llm_routing
+                    .first()
+                    .map(|(_, m)| m.clone())
+                    .unwrap_or_default();
+                let mut runtime_v = json!({
+                    "model": primary_model,
+                    "llm_routing_provider_ids": rt.llm_routing_provider_ids,
+                    "workspace_root": state.workspace_root,
+                    "default_mcp_server": rt.default_mcp_server,
+                });
+                if let Some(e) = reload_err {
+                    if let Some(m) = runtime_v.as_object_mut() {
+                        m.insert("config_reload_error".into(), json!(e));
+                    }
+                }
+                obj.insert("runtime".to_string(), runtime_v);
             }
             let _ = state
                 .event_tx
@@ -233,13 +327,9 @@ async fn handle_command(state: &Arc<KernelState>, cmd: UiCommand) -> Result<()> 
         } => {
             let now = chrono::Utc::now().timestamp_millis();
             let mid = Uuid::new_v4().to_string();
-            state.memory.append_message(
-                &mid,
-                &session_id,
-                "user",
-                &content,
-                now,
-            )?;
+            state
+                .memory
+                .append_message(&mid, &session_id, "user", &content, now)?;
             run_model_turn(state, &session_id, &content, false).await?;
         }
         UiCommand::RefreshMcpTools => {
@@ -247,9 +337,17 @@ async fn handle_command(state: &Arc<KernelState>, cmd: UiCommand) -> Result<()> 
             emit_mcp_summary(state).await?;
         }
         UiCommand::RunHealthCheck => {
+            let (cfg_for_health, primary_client) = {
+                let rt = state.runtime.read();
+                (
+                    rt.cfg.clone(),
+                    rt.llm_routing.first().map(|(p, _)| Arc::clone(p)),
+                )
+            };
+            let primary = primary_client.as_ref().map(|a| a.as_ref());
             let items = crate::health::collect_health_report(
-                &state.cfg,
-                Some(state.provider.as_ref()),
+                &cfg_for_health,
+                primary,
                 state.mcp.as_ref(),
             )
             .await;
@@ -270,7 +368,9 @@ async fn handle_command(state: &Arc<KernelState>, cmd: UiCommand) -> Result<()> 
             state
                 .scheduler
                 .add_job(&id, &cron_expr, &timezone, &payload)?;
-            let _ = state.event_tx.send(KernelEvent::ScheduleJobAdded { job_id: id });
+            let _ = state
+                .event_tx
+                .send(KernelEvent::ScheduleJobAdded { job_id: id });
         }
         UiCommand::ScheduleRemove { job_id } => {
             state.scheduler.remove_job(&job_id)?;
@@ -282,72 +382,38 @@ async fn handle_command(state: &Arc<KernelState>, cmd: UiCommand) -> Result<()> 
             let rows = state.scheduler.list_jobs()?;
             let jobs = rows
                 .into_iter()
-                .map(
-                    |(id, cron_expr, timezone, enabled, prompt)| {
-                        crate::protocol::ScheduledJobSummary {
-                            id,
-                            cron_expr,
-                            timezone,
-                            enabled,
-                            prompt_preview: prompt.chars().take(120).collect(),
-                        }
-                    },
-                )
+                .map(|(id, cron_expr, timezone, enabled, prompt)| {
+                    crate::protocol::ScheduledJobSummary {
+                        id,
+                        cron_expr,
+                        timezone,
+                        enabled,
+                        prompt_preview: prompt.chars().take(120).collect(),
+                    }
+                })
                 .collect();
             let _ = state.event_tx.send(KernelEvent::ScheduleList { jobs });
         }
-        UiCommand::RunSwarm {
-            session_id,
-            tasks,
-        } => {
-            let cap = state.policy.max_swarm_tasks();
-            let tasks: Vec<SwarmSubTask> = tasks.into_iter().take(cap).collect();
-            let mut parts = vec![];
-            for t in tasks {
-                let r = run_swarm_worker(state, &t.instruction).await;
-                let text = r.unwrap_or_else(|e| format!("(error: {e})"));
-                let _ = state.event_tx.send(KernelEvent::SwarmPartial {
-                    session_id: session_id.clone(),
-                    label: t.label.clone(),
-                    text: text.clone(),
-                });
-                parts.push((t.label, text));
-            }
-            let merged = multi_agent::merge_swarm_results(MergeStrategy::ConcatSections, &parts);
-            let _ = state.event_tx.send(KernelEvent::SwarmMerged {
-                session_id,
-                text: merged,
-            });
+        UiCommand::RunSwarm { session_id, tasks } => {
+            run_swarm_command(state, session_id, tasks).await
         }
         UiCommand::Delegate {
             session_id,
             target_agent_id,
             instruction,
-        } => {
-            let task = multi_agent::new_delegate_task(
-                session_id.clone(),
-                target_agent_id.clone(),
-                instruction,
-            );
-            let tid = task.task_id.clone();
-            state.bus.publish(task);
-            let _ = state.event_tx.send(KernelEvent::DelegateQueued {
-                session_id,
-                target_agent_id,
-                task_id: tid,
-            });
-        }
+        } => queue_delegate_command(state, session_id, target_agent_id, instruction),
         UiCommand::MemoryRecall {
             session_id,
             query,
             budget_tokens,
         } => {
+            let max_recall = state.runtime.read().cfg.memory.max_recall_budget_tokens;
             let snippets = state.memory.recall(
                 &session_id,
                 state.workspace_root.as_deref(),
                 &query,
                 budget_tokens,
-                state.cfg.memory.max_recall_budget_tokens,
+                max_recall,
             )?;
             let _ = state.event_tx.send(KernelEvent::MemoryRecalled {
                 session_id,
@@ -355,269 +421,12 @@ async fn handle_command(state: &Arc<KernelState>, cmd: UiCommand) -> Result<()> 
             });
         }
         UiCommand::MemoryForget { entry_id } => {
-            state.memory.forget_knowledge(&entry_id)?;
+            let removed = state.memory.forget_knowledge(&entry_id)?;
+            let _ = state.event_tx.send(KernelEvent::MemoryForgotten {
+                entry_id,
+                removed,
+            });
         }
     }
     Ok(())
-}
-
-async fn run_swarm_worker(state: &KernelState, instruction: &str) -> Result<String> {
-    let recall = state.memory.recall(
-        "swarm",
-        state.workspace_root.as_deref(),
-        instruction,
-        1024,
-        state.cfg.memory.max_recall_budget_tokens,
-    )?;
-    let messages = vec![
-        ChatMessage {
-            role: "system".into(),
-            content: format!("Swarm worker. Context:\n{}", recall.join("\n")),
-            tool_calls: None,
-            tool_call_id: None,
-        },
-        ChatMessage::user(instruction),
-    ];
-    let tools: Vec<ToolDefinition> = vec![];
-    let req = ChatRequest {
-        model: state.model.clone(),
-        messages,
-        tools,
-        stream: false,
-    };
-    let mut stream = state.provider.chat_stream(req).await?;
-    let mut text = String::new();
-    while let Some(ch) = stream.next().await {
-        let ch = ch?;
-        if let Some(d) = ch.content_delta {
-            text.push_str(&d);
-        }
-    }
-    Ok(text)
-}
-
-async fn emit_mcp_summary(state: &KernelState) -> Result<()> {
-    let servers = state.mcp.summarize_tools().await;
-    let _ = state
-        .event_tx
-        .send(KernelEvent::McpToolsUpdated { servers });
-    Ok(())
-}
-
-async fn run_model_turn(
-    state: &KernelState,
-    session_id: &str,
-    _user_line: &str,
-    _from_schedule: bool,
-) -> Result<()> {
-    let recall = state.memory.recall(
-        session_id,
-        state.workspace_root.as_deref(),
-        "",
-        2048,
-        state.cfg.memory.max_recall_budget_tokens,
-    )?;
-    let hist = state.memory.load_recent_messages(session_id, 48)?;
-    let mut messages = vec![ChatMessage {
-        role: "system".into(),
-        content: format!(
-            "You are z-claw desktop agent. Retrieved memory:\n{}",
-            recall.join("\n---\n")
-        ),
-        tool_calls: None,
-        tool_call_id: None,
-    }];
-    for (role, content) in hist {
-        messages.push(ChatMessage {
-            role,
-            content,
-            tool_calls: None,
-            tool_call_id: None,
-        });
-    }
-
-    let tools = state.mcp.all_openai_tools().await;
-
-    for _round in 0..8 {
-        let req = ChatRequest {
-            model: state.model.clone(),
-            messages: messages.clone(),
-            tools: tools.clone(),
-            stream: true,
-        };
-        let mut stream = state.provider.chat_stream(req).await?;
-        let mut assistant_text = String::new();
-        let mut acc: BTreeMap<usize, (Option<String>, Option<String>, String)> = BTreeMap::new();
-        let mut finish: Option<String> = None;
-        while let Some(item) = stream.next().await {
-            let ch = item?;
-            if let Some(d) = ch.content_delta {
-                assistant_text.push_str(&d);
-                let _ = state.event_tx.send(KernelEvent::MessageDelta {
-                    session_id: session_id.to_string(),
-                    role: "assistant".into(),
-                    delta: d,
-                });
-            }
-            for frag in ch.tool_calls_delta {
-                let e = acc
-                    .entry(frag.index)
-                    .or_insert((None, None, String::new()));
-                if let Some(id) = frag.id {
-                    e.0 = Some(id);
-                }
-                if let Some(n) = frag.name {
-                    e.1 = Some(n);
-                }
-                if let Some(a) = frag.arguments_delta {
-                    e.2.push_str(&a);
-                }
-            }
-            if let Some(fr) = ch.finish_reason.clone() {
-                finish = Some(fr);
-            }
-        }
-
-        if acc.is_empty() {
-            let now = chrono::Utc::now().timestamp_millis();
-            let mid = Uuid::new_v4().to_string();
-            state.memory.append_message(
-                &mid,
-                session_id,
-                "assistant",
-                &assistant_text,
-                now,
-            )?;
-            let _ = state.memory.maybe_compact_session(
-                session_id,
-                state.cfg.memory.compaction_enabled,
-                state.cfg.memory.compaction_message_threshold,
-                state.cfg.memory.compaction_keep_recent,
-                state.cfg.memory.compaction_summary_max_chars,
-            );
-            let _ = state.event_tx.send(KernelEvent::MessageComplete {
-                session_id: session_id.to_string(),
-                role: "assistant".into(),
-                full_text: assistant_text,
-            });
-            return Ok(());
-        }
-
-        let tool_calls_json: Vec<Value> = acc
-            .values()
-            .map(|(id, name, args)| {
-                json!({
-                    "id": id.clone().unwrap_or_default(),
-                    "type": "function",
-                    "function": {
-                        "name": name.clone().unwrap_or_default(),
-                        "arguments": args
-                    }
-                })
-            })
-            .collect();
-
-        messages.push(ChatMessage {
-            role: "assistant".into(),
-            content: assistant_text.clone(),
-            tool_calls: Some(json!(tool_calls_json)),
-            tool_call_id: None,
-        });
-
-        let resolved = resolve_tool_calls(&acc)?;
-        for call in resolved {
-            let _ = state.event_tx.send(KernelEvent::ToolCallStarted {
-                session_id: session_id.to_string(),
-                tool_name: call.name.clone(),
-            });
-            let args_val: Value = serde_json::from_str(&call.arguments_json).unwrap_or(json!({}));
-            let args_map = args_val
-                .as_object()
-                .cloned()
-                .unwrap_or_default();
-            let policy_check = state.policy.validate_tool_call(&call.name, &args_val);
-            let result = match policy_check {
-                Err(e) => {
-                    let (code, message) = match &e {
-                        KernelError::PolicyDenied(msg) => {
-                            (classify_policy_denial(msg), msg.clone())
-                        }
-                        _ => (PolicyBlockCode::Other, e.to_string()),
-                    };
-                    let _ = state.event_tx.send(KernelEvent::PolicyBlocked { code, message });
-                    format!("policy_blocked: {e}")
-                }
-                Ok(()) => match execute_tool(state, &call, args_map).await {
-                    Ok(s) => s,
-                    Err(e) => format!("tool_error: {e}"),
-                },
-            };
-            let _ = state.event_tx.send(KernelEvent::ToolCallFinished {
-                session_id: session_id.to_string(),
-                tool_name: call.name.clone(),
-                ok: !result.starts_with("policy_blocked") && !result.starts_with("tool_error"),
-                summary: result.chars().take(200).collect(),
-            });
-            messages.push(ChatMessage::tool(call.id, result));
-        }
-
-        if finish.as_deref() == Some("stop") {
-            continue;
-        }
-    }
-    Ok(())
-}
-
-fn resolve_tool_calls(
-    acc: &BTreeMap<usize, (Option<String>, Option<String>, String)>,
-) -> Result<Vec<ResolvedToolCall>> {
-    let mut out = vec![];
-    for (_k, (id, name, args)) in acc {
-        let id = id
-            .clone()
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| Uuid::new_v4().to_string());
-        let name = name
-            .clone()
-            .filter(|s| !s.is_empty())
-            .ok_or_else(|| KernelError::Message("tool call missing name".into()))?;
-        out.push(ResolvedToolCall {
-            id,
-            name,
-            arguments_json: args.clone(),
-        });
-    }
-    Ok(out)
-}
-
-async fn execute_tool(
-    state: &KernelState,
-    call: &ResolvedToolCall,
-    args: serde_json::Map<String, Value>,
-) -> Result<String> {
-    if call.name == "load_mcp_server" {
-        let sid = args
-            .get("server_id")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| KernelError::Message("load_mcp_server needs server_id".into()))?;
-        state.mcp.load_server_and_cache(sid).await?;
-        emit_mcp_summary(state).await?;
-        return Ok(format!("loaded MCP server {sid}"));
-    }
-
-    let (server_id, tool_name) = if let Some((a, b)) = call.name.split_once("::") {
-        (a.to_string(), b.to_string())
-    } else if let Some(d) = state.default_mcp_server.clone() {
-        (d, call.name.clone())
-    } else {
-        return Err(KernelError::Message(format!(
-            "cannot route tool {} (set MCP server or use server::tool)",
-            call.name
-        )));
-    };
-
-    state
-        .mcp
-        .call_on_server(&server_id, &tool_name, args)
-        .await
 }

@@ -9,6 +9,7 @@ description = "z-claw agent orchestration kernel (no UI)"
 async-stream = "0.3"
 async-trait = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = "0.10"
 cron = "0.15"
 crossbeam-channel = "0.5"
 dirs = "5"
@@ -31,6 +32,8 @@ thiserror = "2"
 tokio = { version = "1.40", features = ["full"] }
 tracing = "0.1"
 uuid = { version = "1", features = ["v4", "serde"] }
+aisdk = { version = "0.5.2", features = ["openaicompatible", "openai"] }
+schemars = "1.2"
 
 [lints]
 workspace = true
