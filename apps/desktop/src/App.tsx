@@ -1,8 +1,6 @@
-import { Button } from "@workspace/ui/components/button"
-
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { listen, type Event, type UnlistenFn } from "@tauri-apps/api/event";
 import {
     Activity,
     CalendarClock,
@@ -282,7 +280,7 @@ export default function App() {
 
     useEffect(() => {
         let unlisten: UnlistenFn | undefined;
-        void listen<KernelEventPayload>("kernel-event", (e) => {
+        void listen<KernelEventPayload>("kernel-event", (e: Event<KernelEventPayload>) => {
             const payload =
                 typeof e.payload === "object" && e.payload !== null
                     ? (e.payload as KernelEventPayload)
@@ -429,7 +427,7 @@ export default function App() {
                     summary: summarizeKernelEvent(payload),
                 },
             ]);
-        }).then((fn) => {
+        }).then((fn: UnlistenFn) => {
             unlisten = fn;
         });
         return () => {
