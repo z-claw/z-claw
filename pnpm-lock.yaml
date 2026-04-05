@@ -9,7 +9,7 @@ importers:
   .:
     devDependencies:
       '@tauri-apps/cli':
-        specifier: ^2.9.6
+        specifier: ^2.10.1
         version: 2.10.1
       prettier:
         specifier: ^3.8.1
