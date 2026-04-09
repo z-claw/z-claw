@@ -123,12 +123,9 @@ export default function App() {
   const listedRef = useRef(false);
   const sessionRestoreRef = useRef<string | null>(uiPrefs0.lastSessionId);
   const sessionIdRef = useRef<string | null>(null);
+  sessionIdRef.current = sessionId; // Update immediately during render to avoid race condition
   /** 与 LoadSessionHistory / SessionHistoryLoaded 对齐，丢弃过期历史包。发送用户消息时递增以作废在途 load。 */
   const historyRequestIdRef = useRef(0);
-
-  useEffect(() => {
-    sessionIdRef.current = sessionId;
-  }, [sessionId]);
 
   const send = useCallback(async (cmd: unknown) => {
     try {
