@@ -1,0 +1,7 @@
+- [x] `mcp_pool.rs` 的 `deferred_tool_definitions` 包含 `execute_command`, `read_file`, `write_file`, `list_directory` 工具定义
+- [x] `turn.rs` 的 `execute_tool` 函数能正确识别并拦截上述内置工具名称
+- [x] `execute_command` 能在 Windows 平台正确调用 `cmd.exe /c` 执行命令并返回标准输出和错误输出
+- [x] `read_file` 能够正确读取文本文件并返回给模型
+- [x] `write_file` 能够自动创建父目录并覆盖写入文件内容
+- [x] `list_directory` 能够列出指定路径下的所有文件及目录名称
+- [x] 针对上述系统级操作的代码能够通过 `cargo check` 及 `cargo test` 编译校验

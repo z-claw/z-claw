@@ -1,0 +1,9 @@
+.vscode/*
+!.vscode/extensions.json
+.idea
+
+/target
+node_modules
+dist
+research/
+/docs

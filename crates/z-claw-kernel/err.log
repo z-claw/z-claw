@@ -1,0 +1,31 @@
+    Checking z-claw-kernel v0.1.0 (F:\Projects\z-claw\crates\z-claw-kernel)
+error: cannot find macro `json` in this scope
+   --> crates\z-claw-kernel\src\orchestrator.rs:316:37
+    |
+316 |                 let mut runtime_v = json!({
+    |                                     ^^^^
+    |
+help: consider importing this macro
+    |
+  5 + use serde_json::json;
+    |
+
+error: cannot find macro `json` in this scope
+   --> crates\z-claw-kernel\src\orchestrator.rs:324:64
+    |
+324 |                         m.insert("config_reload_error".into(), json!(e));
+    |                                                                ^^^^
+    |
+help: consider importing this macro
+    |
+  5 + use serde_json::json;
+    |
+
+error[E0282]: type annotations needed
+   --> crates\z-claw-kernel\src\orchestrator.rs:324:25
+    |
+324 |                         m.insert("config_reload_error".into(), json!(e));
+    |                         ^ cannot infer type
+
+For more information about this error, try `rustc --explain E0282`.
+error: could not compile `z-claw-kernel` (lib) due to 3 previous errors
