@@ -114,6 +114,52 @@ impl McpPool {
                     "required": ["summary"]
                 }),
             },
+            ToolDefinition {
+                name: "execute_command".into(),
+                description: "Execute a command line instruction and return its output.".into(),
+                parameters_json: json!({
+                    "type": "object",
+                    "properties": {
+                        "command": { "type": "string", "description": "The command to execute." },
+                        "cwd": { "type": "string", "description": "The current working directory for the command." }
+                    },
+                    "required": ["command"]
+                }),
+            },
+            ToolDefinition {
+                name: "read_file".into(),
+                description: "Read the contents of a file at the given path.".into(),
+                parameters_json: json!({
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "The path to the file to read." }
+                    },
+                    "required": ["path"]
+                }),
+            },
+            ToolDefinition {
+                name: "write_file".into(),
+                description: "Write content to a file at the given path, creating parent directories if necessary.".into(),
+                parameters_json: json!({
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "The path to the file to write." },
+                        "content": { "type": "string", "description": "The content to write to the file." }
+                    },
+                    "required": ["path", "content"]
+                }),
+            },
+            ToolDefinition {
+                name: "list_directory".into(),
+                description: "List the files and directories in the given path.".into(),
+                parameters_json: json!({
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "The path of the directory to list." }
+                    },
+                    "required": ["path"]
+                }),
+            },
         ]
     }
 

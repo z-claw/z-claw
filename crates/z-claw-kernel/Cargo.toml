@@ -34,6 +34,7 @@ tracing = "0.1"
 uuid = { version = "1", features = ["v4", "serde"] }
 aisdk = { version = "0.5.2", features = ["openaicompatible", "openai"] }
 schemars = "1.2"
+tiktoken-rs = "0.6"
 
 [lints]
 workspace = true

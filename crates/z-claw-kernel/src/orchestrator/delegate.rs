@@ -1,9 +1,11 @@
 use super::KernelState;
-use super::turn::persist_assistant_turn;
-use crate::error::Result;
+use super::turn::{
+    persist_assistant_turn, run_chat_with_tools, ChatWithToolsOutcome, MAX_MODEL_TURN_ROUNDS,
+};
+use crate::error::{KernelError, Result};
 use crate::multi_agent::{self, DelegateTask};
 use crate::protocol::KernelEvent;
-use crate::provider::{ChatMessage, ChatRequest, chat_complete_with_fallback};
+use crate::provider::ChatMessage;
 use std::sync::Arc;
 
 pub(super) fn start_delegate_worker_loop(state: Arc<KernelState>) {
@@ -62,7 +64,7 @@ async fn handle_delegate_task(state: &KernelState, task: DelegateTask) -> Result
             task.target_agent_id, task.task_id
         ),
     };
-    persist_assistant_turn(state, &task.session_id, &result)
+    persist_assistant_turn(state, &task.session_id, &result).await
 }
 
 async fn run_delegate_worker(
@@ -72,17 +74,7 @@ async fn run_delegate_worker(
     instruction: &str,
 ) -> Result<String> {
     let _ = super::try_reload_runtime_from_disk(state);
-    let (max_recall, llm_routing, primary_model) = {
-        let rt = state.runtime.read();
-        (
-            rt.cfg.memory.max_recall_budget_tokens,
-            rt.llm_routing.clone(),
-            rt.llm_routing
-                .first()
-                .map(|(_, m)| m.clone())
-                .unwrap_or_default(),
-        )
-    };
+    let max_recall = state.runtime.read().cfg.memory.max_recall_budget_tokens;
     let recall = state.memory.recall(
         session_id,
         state.workspace_root.as_deref(),
@@ -104,13 +96,13 @@ Context:\n{}",
         },
         ChatMessage::user(instruction),
     ];
-    let req = ChatRequest {
-        model: primary_model,
-        messages,
-        tools: vec![],
-        stream: false,
-    };
-    chat_complete_with_fallback(&llm_routing, req).await
+    let tools = state.mcp.all_openai_tools().await;
+    match run_chat_with_tools(state, session_id, messages, tools, MAX_MODEL_TURN_ROUNDS).await? {
+        ChatWithToolsOutcome::Finished { assistant_text } => Ok(assistant_text),
+        ChatWithToolsOutcome::MaxRoundsExhausted => Err(KernelError::Message(
+            "delegate: maximum tool rounds exhausted without a final reply".into(),
+        )),
+    }
 }
 
 fn format_delegate_result(target_agent_id: &str, task_id: &str, text: &str) -> String {

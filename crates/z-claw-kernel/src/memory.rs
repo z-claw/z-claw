@@ -2,7 +2,31 @@ use crate::error::{KernelError, Result};
 use parking_lot::Mutex;
 use rusqlite::{Connection, OptionalExtension, params};
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
+
+fn cl100k_base_bpe() -> &'static tiktoken_rs::CoreBPE {
+    static BPE: OnceLock<tiktoken_rs::CoreBPE> = OnceLock::new();
+    BPE.get_or_init(|| tiktoken_rs::cl100k_base().expect("cl100k tokenizer init"))
+}
+
+fn count_tokens_cl100k(text: &str) -> usize {
+    cl100k_base_bpe().encode_ordinary(text).len()
+}
+
+/// Messages selected for archival into `episodic` (see [`MemoryEngine::peek_compaction_job`]).
+pub struct CompactionJob {
+    pub rows: Vec<(String, String, String)>,
+}
+
+impl CompactionJob {
+    pub fn joined_blob(&self) -> String {
+        self.rows
+            .iter()
+            .map(|(_, role, content)| format!("{role}: {content}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+}
 
 /// Clamp recall token budget to configured maximum (floor 16 tokens).
 pub fn clamp_recall_budget(requested: u32, max_allowed: u32) -> u32 {
@@ -153,25 +177,24 @@ impl MemoryEngine {
         Ok(n as usize)
     }
 
-    /// When `count > threshold`, move oldest messages into `episodic` and delete them.
-    pub fn maybe_compact_session(
+    /// Oldest messages slated for compaction (full text, not truncated).
+    pub fn peek_compaction_job(
         &self,
         session_id: &str,
         enabled: bool,
         threshold: usize,
         keep_recent: usize,
-        max_summary_chars: usize,
-    ) -> Result<bool> {
+    ) -> Result<Option<CompactionJob>> {
         if !enabled || threshold == 0 || keep_recent >= threshold {
-            return Ok(false);
+            return Ok(None);
         }
         let count = self.count_messages(session_id)?;
         if count <= threshold {
-            return Ok(false);
+            return Ok(None);
         }
         let to_remove = count.saturating_sub(keep_recent);
         if to_remove == 0 {
-            return Ok(false);
+            return Ok(None);
         }
 
         let c = self.conn.lock();
@@ -186,30 +209,33 @@ impl MemoryEngine {
             .collect();
         drop(stmt);
         if rows.is_empty() {
-            return Ok(false);
+            return Ok(None);
         }
+        Ok(Some(CompactionJob { rows }))
+    }
 
-        let mut blob = rows
-            .iter()
-            .map(|(_, role, content)| format!("{role}: {content}"))
-            .collect::<Vec<_>>()
-            .join("\n");
-        if blob.len() > max_summary_chars {
-            blob.truncate(max_summary_chars);
-        }
+    /// Writes episodic row and deletes compacted messages.
+    pub fn apply_compaction(
+        &self,
+        session_id: &str,
+        job: &CompactionJob,
+        summary_body: &str,
+    ) -> Result<()> {
         let now_ms = chrono::Utc::now().timestamp_millis();
         let eid = uuid::Uuid::new_v4().to_string();
+        let body = format!("[compacted]\n{summary_body}");
 
+        let c = self.conn.lock();
         let tx = c.unchecked_transaction()?;
         tx.execute(
             "INSERT INTO episodic (id, session_id, summary, created_ms) VALUES (?1, ?2, ?3, ?4)",
-            params![eid, session_id, format!("[compacted]\n{blob}"), now_ms],
+            params![eid, session_id, body, now_ms],
         )?;
-        for (id, _, _) in &rows {
+        for (id, _, _) in &job.rows {
             tx.execute("DELETE FROM messages WHERE id = ?1", params![id])?;
         }
         tx.commit()?;
-        Ok(true)
+        Ok(())
     }
 
     pub fn load_recent_messages(
@@ -286,7 +312,7 @@ impl MemoryEngine {
         Ok(())
     }
 
-    /// Recall text snippets up to an approximate token budget (chars / 4).
+    /// Recall text snippets up to a token budget (cl100k_base).
     pub fn recall(
         &self,
         session_id: &str,
@@ -296,9 +322,9 @@ impl MemoryEngine {
         max_budget_tokens: u32,
     ) -> Result<Vec<String>> {
         let budget_tokens = clamp_recall_budget(budget_tokens, max_budget_tokens);
-        let budget_chars = (budget_tokens as usize).saturating_mul(4).max(64);
+        let budget_tokens = budget_tokens as usize;
         let mut snippets = vec![];
-        let mut used = 0usize;
+        let mut used_tokens = 0usize;
         let c = self.conn.lock();
 
         if let Some(root) = workspace_root {
@@ -311,8 +337,9 @@ impl MemoryEngine {
                 .optional()?
             {
                 let s = format!("[project_intel] {sum}");
-                used += s.len();
-                if used <= budget_chars {
+                let n = count_tokens_cl100k(&s);
+                if used_tokens + n <= budget_tokens {
+                    used_tokens += n;
                     snippets.push(s);
                 }
             }
@@ -337,10 +364,11 @@ impl MemoryEngine {
             for row in rows {
                 let (kid, t, b) = row?;
                 let s = format!("[knowledge · id={kid}]\n{t}: {b}");
-                if used + s.len() > budget_chars {
+                let n = count_tokens_cl100k(&s);
+                if used_tokens + n > budget_tokens {
                     break;
                 }
-                used += s.len();
+                used_tokens += n;
                 snippets.push(s);
             }
         }
@@ -351,10 +379,11 @@ impl MemoryEngine {
         let rows = stmt.query_map(params![session_id], |r| r.get::<_, String>(0))?;
         for row in rows {
             let s = format!("[episodic] {}", row?);
-            if used + s.len() > budget_chars {
+            let n = count_tokens_cl100k(&s);
+            if used_tokens + n > budget_tokens {
                 break;
             }
-            used += s.len();
+            used_tokens += n;
             snippets.push(s);
         }
 
@@ -371,6 +400,12 @@ mod tests {
         assert_eq!(clamp_recall_budget(100, 50), 50);
         assert_eq!(clamp_recall_budget(10, 8192), 16);
         assert_eq!(clamp_recall_budget(4096, 8192), 4096);
+    }
+
+    #[test]
+    fn cl100k_token_count_is_stable_for_short_text() {
+        assert!(super::count_tokens_cl100k("hello world") >= 2);
+        assert!(super::count_tokens_cl100k("hello world") < 16);
     }
 }
 

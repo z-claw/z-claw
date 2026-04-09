@@ -447,6 +447,114 @@ async fn execute_tool(
                 "No active workspace to attach project intel to.".into(),
             ));
         }
+    } else if call.name == "execute_command" {
+        let command = args.get("command").and_then(|v| v.as_str()).unwrap_or("");
+        let cwd = args.get("cwd").and_then(|v| v.as_str());
+
+        #[cfg(target_os = "windows")]
+        let mut cmd = tokio::process::Command::new("cmd.exe");
+        #[cfg(target_os = "windows")]
+        cmd.arg("/c").arg(command);
+
+        #[cfg(not(target_os = "windows"))]
+        let mut cmd = tokio::process::Command::new("sh");
+        #[cfg(not(target_os = "windows"))]
+        cmd.arg("-c").arg(command);
+
+        if let Some(dir) = cwd {
+            cmd.current_dir(dir);
+        }
+
+        match cmd.output().await {
+            Ok(output) => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                let mut res = String::new();
+                if !stdout.is_empty() {
+                    res.push_str(&format!("STDOUT:\n{}\n", stdout));
+                }
+                if !stderr.is_empty() {
+                    res.push_str(&format!("STDERR:\n{}\n", stderr));
+                }
+                if res.is_empty() {
+                    res.push_str("Command executed successfully with no output.");
+                }
+                return Ok(res);
+            }
+            Err(e) => {
+                return Err(KernelError::Message(format!(
+                    "failed to execute command: {}",
+                    e
+                )));
+            }
+        }
+    } else if call.name == "read_file" {
+        let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+        match tokio::fs::read_to_string(path).await {
+            Ok(content) => return Ok(content),
+            Err(e) => {
+                return Err(KernelError::Message(format!(
+                    "failed to read file '{}': {}",
+                    path, e
+                )));
+            }
+        }
+    } else if call.name == "write_file" {
+        let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+        let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("");
+
+        let path_obj = std::path::Path::new(path);
+        if let Some(parent) = path_obj.parent() {
+            if !parent.exists() {
+                if let Err(e) = tokio::fs::create_dir_all(parent).await {
+                    return Err(KernelError::Message(format!(
+                        "failed to create parent directories for '{}': {}",
+                        path, e
+                    )));
+                }
+            }
+        }
+
+        match tokio::fs::write(path, content).await {
+            Ok(_) => return Ok(format!("Successfully wrote to '{}'", path)),
+            Err(e) => {
+                return Err(KernelError::Message(format!(
+                    "failed to write file '{}': {}",
+                    path, e
+                )));
+            }
+        }
+    } else if call.name == "list_directory" {
+        let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+        match tokio::fs::read_dir(path).await {
+            Ok(mut entries) => {
+                let mut result = String::new();
+                result.push_str(&format!("Directory listing for '{}':\n", path));
+                while let Ok(Some(entry)) = entries.next_entry().await {
+                    let file_type = entry.file_type().await.ok();
+                    let type_str = if let Some(ft) = file_type {
+                        if ft.is_dir() {
+                            "[DIR] "
+                        } else if ft.is_symlink() {
+                            "[LINK]"
+                        } else {
+                            "[FILE]"
+                        }
+                    } else {
+                        "[?]   "
+                    };
+                    let name = entry.file_name();
+                    result.push_str(&format!("{} {}\n", type_str, name.to_string_lossy()));
+                }
+                return Ok(result);
+            }
+            Err(e) => {
+                return Err(KernelError::Message(format!(
+                    "failed to list directory '{}': {}",
+                    path, e
+                )));
+            }
+        }
     }
 
     let (server_id, tool_name) = if let Some((a, b)) = call.name.split_once("::") {

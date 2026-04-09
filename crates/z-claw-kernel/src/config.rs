@@ -110,7 +110,10 @@ pub struct MemoryConfig {
     pub compaction_keep_recent: usize,
     #[serde(default = "default_compaction_summary_max_chars")]
     pub compaction_summary_max_chars: usize,
-    /// Upper bound for `MemoryRecall` and internal recall budgets (tokens ≈ chars/4).
+    /// When `compaction_enabled`, call the configured LLM to summarize archived messages instead of raw truncation.
+    #[serde(default)]
+    pub compaction_llm_summary: bool,
+    /// Upper bound for `MemoryRecall` and internal recall budgets (measured with cl100k_base when tiktoken is used).
     #[serde(default = "default_max_recall_budget_tokens")]
     pub max_recall_budget_tokens: u32,
 }
@@ -122,6 +125,7 @@ impl Default for MemoryConfig {
             compaction_message_threshold: default_compaction_message_threshold(),
             compaction_keep_recent: default_compaction_keep_recent(),
             compaction_summary_max_chars: default_compaction_summary_max_chars(),
+            compaction_llm_summary: false,
             max_recall_budget_tokens: default_max_recall_budget_tokens(),
         }
     }
@@ -295,6 +299,7 @@ pub fn snapshot_for_ui(cfg: &AppConfig) -> Value {
             "compaction_message_threshold": cfg.memory.compaction_message_threshold,
             "compaction_keep_recent": cfg.memory.compaction_keep_recent,
             "compaction_summary_max_chars": cfg.memory.compaction_summary_max_chars,
+            "compaction_llm_summary": cfg.memory.compaction_llm_summary,
             "max_recall_budget_tokens": cfg.memory.max_recall_budget_tokens,
         },
         "data_dir": cfg.data_dir,

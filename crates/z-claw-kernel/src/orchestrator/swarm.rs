@@ -1,9 +1,11 @@
-use super::turn::persist_assistant_turn;
+use super::turn::{
+    persist_assistant_turn, run_chat_with_tools, ChatWithToolsOutcome, MAX_MODEL_TURN_ROUNDS,
+};
 use super::KernelState;
-use crate::error::Result;
+use crate::error::{KernelError, Result};
 use crate::multi_agent::{self, MergeStrategy};
 use crate::protocol::{KernelEvent, SwarmSubTask};
-use crate::provider::{ChatMessage, ChatRequest, chat_complete_with_fallback};
+use crate::provider::ChatMessage;
 use std::sync::Arc;
 
 pub(super) async fn run_swarm_command(
@@ -15,7 +17,7 @@ pub(super) async fn run_swarm_command(
     let tasks: Vec<SwarmSubTask> = tasks.into_iter().take(cap).collect();
     let mut parts = vec![];
     for t in tasks {
-        let r = run_swarm_worker(state, &t.instruction).await;
+        let r = run_swarm_worker(state, &session_id, &t.instruction).await;
         let text = r.unwrap_or_else(|e| format!("(error: {e})"));
         let _ = state.event_tx.send(KernelEvent::SwarmPartial {
             session_id: session_id.clone(),
@@ -30,28 +32,22 @@ pub(super) async fn run_swarm_command(
         session_id: sid.clone(),
         text: merged.clone(),
     });
-    if let Err(e) = persist_assistant_turn(state.as_ref(), &sid, &merged) {
+    if let Err(e) = persist_assistant_turn(state.as_ref(), &sid, &merged).await {
         let _ = state.event_tx.send(KernelEvent::Error {
             message: format!("swarm persist failed: {e}"),
         });
     }
 }
 
-async fn run_swarm_worker(state: &KernelState, instruction: &str) -> Result<String> {
+async fn run_swarm_worker(
+    state: &KernelState,
+    session_id: &str,
+    instruction: &str,
+) -> Result<String> {
     let _ = super::try_reload_runtime_from_disk(state);
-    let (max_recall, llm_routing, primary_model) = {
-        let rt = state.runtime.read();
-        (
-            rt.cfg.memory.max_recall_budget_tokens,
-            rt.llm_routing.clone(),
-            rt.llm_routing
-                .first()
-                .map(|(_, m)| m.clone())
-                .unwrap_or_default(),
-        )
-    };
+    let max_recall = state.runtime.read().cfg.memory.max_recall_budget_tokens;
     let recall = state.memory.recall(
-        "swarm",
+        session_id,
         state.workspace_root.as_deref(),
         instruction,
         1024,
@@ -66,11 +62,11 @@ async fn run_swarm_worker(state: &KernelState, instruction: &str) -> Result<Stri
         },
         ChatMessage::user(instruction),
     ];
-    let req = ChatRequest {
-        model: primary_model,
-        messages,
-        tools: vec![],
-        stream: false,
-    };
-    chat_complete_with_fallback(&llm_routing, req).await
+    let tools = state.mcp.all_openai_tools().await;
+    match run_chat_with_tools(state, session_id, messages, tools, MAX_MODEL_TURN_ROUNDS).await? {
+        ChatWithToolsOutcome::Finished { assistant_text } => Ok(assistant_text),
+        ChatWithToolsOutcome::MaxRoundsExhausted => Err(KernelError::Message(
+            "swarm worker: maximum tool rounds exhausted without a final reply".into(),
+        )),
+    }
 }

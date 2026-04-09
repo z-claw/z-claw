@@ -8,6 +8,7 @@
     "preview": "pnpm --filter z-claw-desktop preview",
     "lint": "pnpm -r --if-present run lint",
     "typecheck": "pnpm -r --if-present run typecheck",
+    "test": "pnpm -r --if-present run test",
     "format": "prettier --write \"apps/**/*.{ts,tsx}\" \"packages/**/*.{ts,tsx}\"",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
