@@ -67,18 +67,54 @@ impl McpPool {
     }
 
     pub async fn deferred_tool_definitions(&self) -> Vec<ToolDefinition> {
-        vec![ToolDefinition {
-            name: "load_mcp_server".into(),
-            description: "Connect a lazy MCP server by id (from config) and refresh its tool list."
-                .into(),
-            parameters_json: json!({
-                "type": "object",
-                "properties": {
-                    "server_id": { "type": "string", "description": "Configured MCP server id" }
-                },
-                "required": ["server_id"]
-            }),
-        }]
+        vec![
+            ToolDefinition {
+                name: "load_mcp_server".into(),
+                description: "Connect a lazy MCP server by id (from config) and refresh its tool list."
+                    .into(),
+                parameters_json: json!({
+                    "type": "object",
+                    "properties": {
+                        "server_id": { "type": "string", "description": "Configured MCP server id" }
+                    },
+                    "required": ["server_id"]
+                }),
+            },
+            ToolDefinition {
+                name: "store_knowledge".into(),
+                description: "Store a permanent fact, rule, or piece of knowledge in the long-term memory.".into(),
+                parameters_json: json!({
+                    "type": "object",
+                    "properties": {
+                        "title": { "type": "string", "description": "A short, descriptive title for the knowledge." },
+                        "body": { "type": "string", "description": "The detailed content of the knowledge." }
+                    },
+                    "required": ["title", "body"]
+                }),
+            },
+            ToolDefinition {
+                name: "forget_knowledge".into(),
+                description: "Delete an outdated or incorrect piece of knowledge from long-term memory using its id.".into(),
+                parameters_json: json!({
+                    "type": "object",
+                    "properties": {
+                        "entry_id": { "type": "string", "description": "The id of the knowledge entry to forget (e.g., from a recall result)." }
+                    },
+                    "required": ["entry_id"]
+                }),
+            },
+            ToolDefinition {
+                name: "upsert_project_intel".into(),
+                description: "Update the high-level summary of the current project/workspace. Overwrites existing project intel.".into(),
+                parameters_json: json!({
+                    "type": "object",
+                    "properties": {
+                        "summary": { "type": "string", "description": "The comprehensive summary of the project's purpose, stack, and architecture." }
+                    },
+                    "required": ["summary"]
+                }),
+            },
+        ]
     }
 
     pub async fn all_openai_tools(&self) -> Vec<ToolDefinition> {
