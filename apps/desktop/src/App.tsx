@@ -168,16 +168,16 @@ export default function App() {
     loadSessionHistory(sessionId);
   }, [kernelReady, sessionId, loadSessionHistory]);
 
-  // Initial data fetch: we don't need to wait for kernelReady because the Rust channel is already open
+  // Initial data fetch: we wait for kernelReady to ensure event listeners are fully registered
   useEffect(() => {
-    if (!listedRef.current) {
+    if (kernelReady && !listedRef.current) {
       listedRef.current = true;
       // eslint-disable-next-line
       void send("ListSessions");
       void send("ListAgents");
       void send("GetConfigSnapshot");
     }
-  }, [send]);
+  }, [kernelReady, send]);
 
   useEffect(() => {
     const want = sessionRestoreRef.current;
