@@ -482,12 +482,18 @@ async fn handle_command(state: &Arc<KernelState>, cmd: UiCommand) -> Result<()> 
             }
         }
         UiCommand::CreateAgentProfile { agent_id } => {
-            if state.workspace_manager.create_agent_profile(&agent_id).is_ok() {
-                *state.active_agent_id.write() = agent_id;
-                
-                let agents = state.workspace_manager.list_agents().unwrap_or_default();
-                let active = state.active_agent_id.read().clone();
-                let _ = state.event_tx.send(KernelEvent::AgentsList { agents, active });
+            match state.workspace_manager.create_agent_profile(&agent_id) {
+                Ok(()) => {
+                    *state.active_agent_id.write() = agent_id;
+                    let agents = state.workspace_manager.list_agents().unwrap_or_default();
+                    let active = state.active_agent_id.read().clone();
+                    let _ = state.event_tx.send(KernelEvent::AgentsList { agents, active });
+                }
+                Err(e) => {
+                    let _ = state.event_tx.send(KernelEvent::Error {
+                        message: format!("无法创建智能体档案 {agent_id}: {e}"),
+                    });
+                }
             }
         }
         UiCommand::LoadAgentProfile {
