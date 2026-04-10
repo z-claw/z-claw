@@ -222,6 +222,30 @@ export function summarizeKernelEvent(payload: Record<string, unknown>): {
         tone: ok ? "success" : "warning",
       };
     }
+    case "AgentProfileLoaded": {
+      const v = raw as { agent_id?: string };
+      return {
+        label: "档案",
+        detail: `已加载 ${v.agent_id ?? "?"}`,
+        tone: "accent",
+      };
+    }
+    case "AgentProfileLoadFailed": {
+      const v = raw as { message?: string };
+      return {
+        label: "档案",
+        detail: v.message ?? "加载失败",
+        tone: "danger",
+      };
+    }
+    case "AgentProfileSaved": {
+      const v = raw as { agent_id?: string };
+      return {
+        label: "档案",
+        detail: `已保存 ${v.agent_id ?? ""}`,
+        tone: "success",
+      };
+    }
     default:
       return {
         label: key ?? "事件",

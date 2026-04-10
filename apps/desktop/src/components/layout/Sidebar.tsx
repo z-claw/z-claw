@@ -1,5 +1,12 @@
 import { useMemo } from "react";
-import { Activity, Layers, RotateCw, Sparkles, Trash2 } from "lucide-react";
+import {
+  Activity,
+  FilePenLine,
+  Layers,
+  RotateCw,
+  Sparkles,
+  Trash2,
+} from "lucide-react";
 import { Button } from "@workspace/ui/components/button";
 import {
   Card,
@@ -34,6 +41,7 @@ export interface SidebarProps {
   agentsList: string[];
   activeAgent: string;
   onSelectAgent: (agent_id: string) => void;
+  onOpenAgentProfileEditor: () => void;
 }
 
 export function Sidebar({
@@ -49,6 +57,7 @@ export function Sidebar({
   agentsList,
   activeAgent,
   onSelectAgent,
+  onOpenAgentProfileEditor,
 }: SidebarProps) {
   const agentSelectOptions = useMemo(() => {
     const ids = new Set(agentsList);
@@ -119,6 +128,15 @@ export function Sidebar({
               title="新建智能体档案"
             >
               <Sparkles className="size-3.5" />
+            </Button>
+            <Button
+              size="icon-sm"
+              variant="outline"
+              className="size-8 shrink-0 border-input/50 bg-background/50 text-muted-foreground"
+              onClick={() => onOpenAgentProfileEditor()}
+              title="编辑当前档案（IDENTITY / MEMORY）"
+            >
+              <FilePenLine className="size-3.5" />
             </Button>
           </div>
         </div>
