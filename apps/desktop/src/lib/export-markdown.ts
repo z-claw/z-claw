@@ -11,6 +11,22 @@ export function transcriptToMarkdown(
   return head + body;
 }
 
+export function downloadJsonFile(filename: string, data: unknown): void {
+  const content = JSON.stringify(data, null, 2);
+  const blob = new Blob([content], {
+    type: "application/json;charset=utf-8",
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.rel = "noopener";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 export function downloadTextFile(filename: string, content: string): void {
   const blob = new Blob([content], {
     type: "text/markdown;charset=utf-8",
