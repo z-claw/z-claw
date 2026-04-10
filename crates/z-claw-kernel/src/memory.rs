@@ -255,6 +255,26 @@ impl MemoryEngine {
         Ok(out)
     }
 
+    /// Full-text search within a session's messages using a LIKE pattern (case-insensitive).
+    /// Returns `(role, content)` pairs for matching messages in chronological order.
+    pub fn search_messages(
+        &self,
+        session_id: &str,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<(String, String)>> {
+        let pattern = format!("%{}%", query.replace('%', "\\%").replace('_', "\\_"));
+        let c = self.conn.lock();
+        let mut stmt = c.prepare(
+            "SELECT role, content FROM messages WHERE session_id = ?1 AND content LIKE ?2 ESCAPE '\\' ORDER BY created_ms ASC LIMIT ?3",
+        )?;
+        let rows = stmt.query_map(params![session_id, pattern, limit as i64], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })?;
+        let out: Vec<_> = rows.filter_map(|x| x.ok()).collect();
+        Ok(out)
+    }
+
     pub fn store_episodic(
         &self,
         id: &str,

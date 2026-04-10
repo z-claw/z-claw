@@ -8,9 +8,17 @@ use crate::provider::{
 use futures_util::StreamExt;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
+use std::time::Duration;
 use uuid::Uuid;
 
 pub(super) const MAX_MODEL_TURN_ROUNDS: usize = 8;
+
+/// Timeout for `execute_command` built-in tool.
+const EXECUTE_COMMAND_TIMEOUT_SECS: u64 = 60;
+/// Maximum combined stdout+stderr bytes returned from `execute_command`.
+const EXECUTE_COMMAND_MAX_OUTPUT_BYTES: usize = 65_536; // 64 KB
+/// How long the kernel waits for a UI approval response before auto-rejecting.
+const TOOL_APPROVAL_TIMEOUT_SECS: u64 = 120;
 
 type ToolCallAccumulator = BTreeMap<usize, (Option<String>, Option<String>, String)>;
 
@@ -363,10 +371,48 @@ async fn execute_tool_call_result(
                 .send(KernelEvent::PolicyBlocked { code, message });
             format!("policy_blocked: {e}")
         }
-        Ok(()) => match execute_tool(state, session_id, call, args_map).await {
-            Ok(s) => s,
-            Err(e) => format!("tool_error: {e}"),
-        },
+        Ok(()) => {
+            // Require explicit user approval for dangerous tools when the policy is enabled.
+            if state.policy.require_tool_approval() && is_dangerous_tool(&call.name) {
+                let approval_id = Uuid::new_v4().to_string();
+                let (tx, rx) = tokio::sync::oneshot::channel::<bool>();
+                state
+                    .pending_approvals
+                    .write()
+                    .insert(approval_id.clone(), tx);
+                let _ = state.event_tx.send(KernelEvent::ToolApprovalRequested {
+                    approval_id: approval_id.clone(),
+                    session_id: session_id.to_string(),
+                    tool_name: call.name.clone(),
+                    arguments_json: call.arguments_json.clone(),
+                });
+                match tokio::time::timeout(
+                    Duration::from_secs(TOOL_APPROVAL_TIMEOUT_SECS),
+                    rx,
+                )
+                .await
+                {
+                    Ok(Ok(true)) => { /* approved — fall through to execute */ }
+                    Ok(Ok(false)) => {
+                        return "policy_blocked: tool execution rejected by user".into();
+                    }
+                    Ok(Err(_)) => {
+                        state.pending_approvals.write().remove(&approval_id);
+                        return "policy_blocked: tool approval channel closed".into();
+                    }
+                    Err(_elapsed) => {
+                        state.pending_approvals.write().remove(&approval_id);
+                        return format!(
+                            "policy_blocked: tool approval timed out after {TOOL_APPROVAL_TIMEOUT_SECS}s"
+                        );
+                    }
+                }
+            }
+            match execute_tool(state, session_id, call, args_map).await {
+                Ok(s) => s,
+                Err(e) => format!("tool_error: {e}"),
+            }
+        }
     }
 }
 
@@ -401,7 +447,7 @@ fn is_dangerous_tool(tool_name: &str) -> bool {
 
 async fn execute_tool(
     state: &KernelState,
-    session_id: &str,
+    _session_id: &str,
     call: &ResolvedToolCall,
     args: serde_json::Map<String, Value>,
 ) -> Result<String> {
@@ -465,8 +511,24 @@ async fn execute_tool(
             cmd.current_dir(dir);
         }
 
-        match cmd.output().await {
-            Ok(output) => {
+        match tokio::time::timeout(
+            Duration::from_secs(EXECUTE_COMMAND_TIMEOUT_SECS),
+            cmd.output(),
+        )
+        .await
+        {
+            Err(_elapsed) => {
+                return Err(KernelError::Message(format!(
+                    "command timed out after {EXECUTE_COMMAND_TIMEOUT_SECS} seconds"
+                )));
+            }
+            Ok(Err(e)) => {
+                return Err(KernelError::Message(format!(
+                    "failed to execute command: {}",
+                    e
+                )));
+            }
+            Ok(Ok(output)) => {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 let stderr = String::from_utf8_lossy(&output.stderr);
                 let mut res = String::new();
@@ -479,13 +541,11 @@ async fn execute_tool(
                 if res.is_empty() {
                     res.push_str("Command executed successfully with no output.");
                 }
+                if res.len() > EXECUTE_COMMAND_MAX_OUTPUT_BYTES {
+                    res.truncate(EXECUTE_COMMAND_MAX_OUTPUT_BYTES);
+                    res.push_str("\n[output truncated]");
+                }
                 return Ok(res);
-            }
-            Err(e) => {
-                return Err(KernelError::Message(format!(
-                    "failed to execute command: {}",
-                    e
-                )));
             }
         }
     } else if call.name == "read_file" {
@@ -567,38 +627,6 @@ async fn execute_tool(
             call.name
         )));
     };
-
-    if is_dangerous_tool(&call.name) {
-        let approval_id = Uuid::new_v4().to_string();
-        let (tx, rx) = tokio::sync::oneshot::channel();
-        state
-            .pending_approvals
-            .write()
-            .insert(approval_id.clone(), tx);
-
-        let _ = state.event_tx.send(KernelEvent::ToolApprovalRequested {
-            approval_id: approval_id.clone(),
-            session_id: session_id.to_string(),
-            tool_name: call.name.clone(),
-            arguments_json: call.arguments_json.clone(),
-        });
-
-        match rx.await {
-            Ok(true) => {
-                // proceed
-            }
-            Ok(false) => {
-                return Err(KernelError::Message(
-                    "Tool execution rejected by user".into(),
-                ));
-            }
-            Err(_) => {
-                return Err(KernelError::Message(
-                    "Tool execution approval channel dropped".into(),
-                ));
-            }
-        }
-    }
 
     state.mcp.call_on_server(&server_id, &tool_name, args).await
 }

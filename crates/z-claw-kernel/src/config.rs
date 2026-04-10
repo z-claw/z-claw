@@ -88,6 +88,10 @@ pub struct PolicyConfig {
     pub min_schedule_interval_sec: u64,
     #[serde(default = "default_max_swarm_tasks")]
     pub max_swarm_tasks: usize,
+    /// When true, dangerous tools (shell/command execution) require explicit user approval
+    /// before running. The UI must respond via `RespondToolApproval` within 120 seconds.
+    #[serde(default)]
+    pub require_tool_approval: bool,
 }
 
 fn default_min_schedule_interval_sec() -> u64 {
@@ -293,6 +297,7 @@ pub fn snapshot_for_ui(cfg: &AppConfig) -> Value {
             "blocked_tool_names": cfg.policy.blocked_tool_names,
             "min_schedule_interval_sec": cfg.policy.min_schedule_interval_sec,
             "max_swarm_tasks": cfg.policy.max_swarm_tasks,
+            "require_tool_approval": cfg.policy.require_tool_approval,
         },
         "memory": {
             "compaction_enabled": cfg.memory.compaction_enabled,
