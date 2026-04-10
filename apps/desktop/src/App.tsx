@@ -239,7 +239,12 @@ export default function App() {
             ? (e.payload as KernelEventPayload)
             : ({ _: e.payload } as KernelEventPayload);
 
-        if ("Ready" in payload) setKernelReady(true);
+        // 内核 Ready 可能在 Web 端 subscribe 之前就已发出，会丢失；任意一条 externally-tagged
+        // 内核事件（单键且非占位 `_`）都说明通道可用，应显示「已连接」。
+        {
+          const k = Object.keys(payload)[0];
+          if (k && k !== "_") setKernelReady(true);
+        }
         if ("Error" in payload) {
           const err = payload.Error as { message?: string };
           const msg = err.message ?? "未知错误";
@@ -468,6 +473,8 @@ export default function App() {
       },
     ).then((fn: UnlistenFn) => {
       unlisten = fn;
+      // 订阅就绪后再拉一次快照，确保至少收到一条事件（补偿丢失的 Ready）
+      void invoke("kernel_send", { cmd: "GetConfigSnapshot" }).catch(() => {});
     });
     return () => {
       void unlisten?.();
