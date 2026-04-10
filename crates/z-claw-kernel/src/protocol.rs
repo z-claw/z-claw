@@ -71,6 +71,19 @@ pub enum UiCommand {
     CreateAgentProfile {
         agent_id: String,
     },
+    /// Load `IDENTITY.md` / `MEMORY.md` for in-app editing (`AgentProfileLoaded` or `AgentProfileLoadFailed`).
+    LoadAgentProfile {
+        agent_id: String,
+        /// UI 递增；与 [`KernelEvent::AgentProfileLoaded`] 对齐，用于丢弃过期响应。
+        #[serde(default)]
+        client_request_id: u64,
+    },
+    /// Persist profile markdown to workspace files.
+    SaveAgentProfile {
+        agent_id: String,
+        identity_markdown: String,
+        memory_markdown: String,
+    },
     MemoryRecall {
         session_id: String,
         query: String,
@@ -149,6 +162,22 @@ pub enum KernelEvent {
     AgentsList {
         agents: Vec<String>,
         active: String,
+    },
+    AgentProfileLoaded {
+        agent_id: String,
+        identity_markdown: String,
+        memory_markdown: String,
+        #[serde(default)]
+        client_request_id: u64,
+    },
+    AgentProfileLoadFailed {
+        agent_id: String,
+        message: String,
+        #[serde(default)]
+        client_request_id: u64,
+    },
+    AgentProfileSaved {
+        agent_id: String,
     },
     PolicyBlocked {
         /// Machine-readable category for UI and logs.
@@ -282,5 +311,22 @@ mod ui_command_json_tests {
     fn list_agents_from_plain_json_string() {
         let c: UiCommand = serde_json::from_str(r#""ListAgents""#).unwrap();
         assert!(matches!(c, UiCommand::ListAgents));
+    }
+
+    #[test]
+    fn load_agent_profile_roundtrip() {
+        let c = UiCommand::LoadAgentProfile {
+            agent_id: "DefaultAgent".into(),
+            client_request_id: 3,
+        };
+        let j = serde_json::to_string(&c).unwrap();
+        let back: UiCommand = serde_json::from_str(&j).unwrap();
+        assert!(matches!(
+            back,
+            UiCommand::LoadAgentProfile {
+                agent_id,
+                client_request_id: 3
+            } if agent_id == "DefaultAgent"
+        ));
     }
 }

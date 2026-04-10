@@ -82,15 +82,45 @@ async fn run_delegate_worker(
         1024,
         max_recall,
     )?;
-    let messages = vec![
-        ChatMessage {
-            role: "system".into(),
-            content: format!(
+    let system_content = match state
+        .workspace_manager
+        .load_agent_profile(target_agent_id)
+    {
+        Ok(p) => format!(
+            "You are acting as delegated sub-agent `{id}`.\n\
+Follow the identity and long-term memory below. Complete the delegated task and return only the useful result for the parent session.\n\
+\n\
+## Identity (IDENTITY.md)\n\
+{ident}\n\
+\n\
+## Agent memory (MEMORY.md)\n\
+{mem}\n\
+\n\
+## Retrieved context\n\
+{}",
+            recall.join("\n"),
+            id = p.id,
+            ident = p.identity_prompt,
+            mem = p.memory_text,
+        ),
+        Err(e) => {
+            tracing::warn!(
+                target = %target_agent_id,
+                error = %e,
+                "delegate: could not load target agent profile; using recall-only system prompt"
+            );
+            format!(
                 "Delegated sub-agent profile: {target_agent_id}\n\
 Complete the delegated task and return only the useful result for the parent session.\n\
 Context:\n{}",
                 recall.join("\n")
-            ),
+            )
+        }
+    };
+    let messages = vec![
+        ChatMessage {
+            role: "system".into(),
+            content: system_content,
             tool_calls: None,
             tool_call_id: None,
         },

@@ -1,15 +1,25 @@
 schema: spec-driven
 
 # Project context (optional)
-# This is shown to AI when creating artifacts.
+# This is shown to AI when creating artifacts. Cross-check with repo README.md.
 context: |
   Repository: z-claw — pnpm workspaces monorepo (Node >= 20, package manager pnpm 9).
-  Desktop app: apps/desktop — Tauri 2, Vite, React 19, TypeScript; UI shared via packages/ui (workspace:*).
-  Tooling: ESLint + Prettier (Tailwind plugin); run lint/typecheck from repo root with pnpm -r.
-  Domain: desktop shell talks to a kernel over a bridge; UI concerns include agent identity/list controls,
-  ListAgents / SetActiveAgent style flows — align specs with actual message and component names in code.
+  Top-level layout: apps/desktop (Tauri shell + React UI), crates/z-claw-kernel (Rust kernel),
+  packages/ui (shared components), src-tauri (Tauri bridge), openspec/ (specs + this file).
+
+  Desktop: apps/desktop — Tauri 2, Vite, React 19, TypeScript; import UI as @workspace/ui (workspace:*).
+  Bridge: src-tauri invokes kernel_send(UiCommand); kernel emits KernelEvent over the "kernel-event" channel.
+  Kernel protocol: crates/z-claw-kernel/src/protocol.rs — extend UiCommand/KernelEvent in tandem with desktop types.
+
+  Agent workspace: per-agent folders under the data-dir workspace (DefaultAgent/IDENTITY.md, MEMORY.md);
+  UI flows include ListAgents, SetActiveAgent, LoadAgentProfile, SaveAgentProfile, Delegate.
+
+  Tooling: ESLint + Prettier (Tailwind); from repo root use pnpm -r for lint/typecheck; Rust: cargo test -p z-claw-kernel.
+  Git: feature branches from main; PRs should pass lint/typecheck and keep OpenSpec artifacts consistent with code.
+
   OpenSpec skill files are duplicated under .claude/skills, .cursor/skills, .codex/skills, .agent/skills,
   .opencode/skills, and .trae/skills; treat .claude/skills/openspec-* as the canonical copy when updating workflows.
+  Human overview: see README.md in the repository root.
 
 # Per-artifact rules (optional)
 rules:

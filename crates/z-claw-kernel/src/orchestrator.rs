@@ -490,6 +490,40 @@ async fn handle_command(state: &Arc<KernelState>, cmd: UiCommand) -> Result<()> 
                 let _ = state.event_tx.send(KernelEvent::AgentsList { agents, active });
             }
         }
+        UiCommand::LoadAgentProfile {
+            agent_id,
+            client_request_id,
+        } => {
+            match state.workspace_manager.load_agent_profile(&agent_id) {
+                Ok(p) => {
+                    let _ = state.event_tx.send(KernelEvent::AgentProfileLoaded {
+                        agent_id,
+                        identity_markdown: p.identity_prompt,
+                        memory_markdown: p.memory_text,
+                        client_request_id,
+                    });
+                }
+                Err(e) => {
+                    let _ = state.event_tx.send(KernelEvent::AgentProfileLoadFailed {
+                        agent_id,
+                        message: e.to_string(),
+                        client_request_id,
+                    });
+                }
+            }
+        }
+        UiCommand::SaveAgentProfile {
+            agent_id,
+            identity_markdown,
+            memory_markdown,
+        } => {
+            state.workspace_manager.save_agent_profile(
+                &agent_id,
+                &identity_markdown,
+                &memory_markdown,
+            )?;
+            let _ = state.event_tx.send(KernelEvent::AgentProfileSaved { agent_id });
+        }
     }
     Ok(())
 }

@@ -50,6 +50,7 @@ import { ChatPanel } from "./components/layout/ChatPanel";
 import { EventLogPanel } from "./components/layout/EventLogPanel";
 import { SettingsDrawer } from "./components/modals/SettingsDrawer";
 import { InspectorDrawer } from "./components/modals/InspectorDrawer";
+import { AgentProfileSheet } from "./components/modals/AgentProfileSheet";
 import type {
   KernelEventPayload,
   LogEntry,
@@ -112,6 +113,10 @@ export default function App() {
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [agentsList, setAgentsList] = useState<string[]>([]);
   const [activeAgent, setActiveAgent] = useState<string>("DefaultAgent");
+  const [agentProfileOpen, setAgentProfileOpen] = useState(false);
+  const [agentProfileIdentity, setAgentProfileIdentity] = useState("");
+  const [agentProfileMemory, setAgentProfileMemory] = useState("");
+  const [agentProfileLoading, setAgentProfileLoading] = useState(false);
   const [pendingApproval, setPendingApproval] = useState<{
     approval_id: string;
     session_id: string;
@@ -121,6 +126,7 @@ export default function App() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const chatBottomRef = useRef<HTMLDivElement>(null);
   const listedRef = useRef(false);
+  const profileLoadReqIdRef = useRef(0);
   const sessionRestoreRef = useRef<string | null>(uiPrefs0.lastSessionId);
   const sessionIdRef = useRef<string | null>(null);
   sessionIdRef.current = sessionId; // Update immediately during render to avoid race condition
@@ -210,6 +216,18 @@ export default function App() {
       void send("GetConfigSnapshot");
     }
   }, [settingsOpen, send]);
+
+  useEffect(() => {
+    if (!kernelReady || !agentProfileOpen || !activeAgent) return;
+    const rid = ++profileLoadReqIdRef.current;
+    setAgentProfileLoading(true);
+    void send({
+      LoadAgentProfile: {
+        agent_id: activeAgent,
+        client_request_id: rid,
+      },
+    });
+  }, [kernelReady, agentProfileOpen, activeAgent, send]);
 
   useEffect(() => {
     let unlisten: UnlistenFn | undefined;
@@ -305,6 +323,38 @@ export default function App() {
           const a = payload.AgentsList as { agents?: string[], active?: string };
           setAgentsList(a.agents ?? []);
           setActiveAgent(a.active ?? "DefaultAgent");
+        }
+        if ("AgentProfileLoaded" in payload) {
+          const v = payload.AgentProfileLoaded as {
+            client_request_id?: number;
+            identity_markdown?: string;
+            memory_markdown?: string;
+          };
+          const rid = v.client_request_id ?? 0;
+          if (rid === profileLoadReqIdRef.current) {
+            setAgentProfileIdentity(v.identity_markdown ?? "");
+            setAgentProfileMemory(v.memory_markdown ?? "");
+            setAgentProfileLoading(false);
+          }
+        }
+        if ("AgentProfileLoadFailed" in payload) {
+          const v = payload.AgentProfileLoadFailed as {
+            client_request_id?: number;
+            message?: string;
+          };
+          const rid = v.client_request_id ?? 0;
+          if (rid === profileLoadReqIdRef.current) {
+            setAgentProfileLoading(false);
+            toast.error("无法加载档案", {
+              description: v.message ?? "未知错误",
+            });
+          }
+        }
+        if ("AgentProfileSaved" in payload) {
+          const v = payload.AgentProfileSaved as { agent_id?: string };
+          toast.success("档案已保存", {
+            description: v.agent_id ?? "",
+          });
         }
         if ("ToolApprovalRequested" in payload) {
           const tar = payload.ToolApprovalRequested as {
@@ -545,6 +595,17 @@ export default function App() {
     toast.success("已下载 Markdown");
   };
 
+  const saveAgentProfile = () => {
+    if (!activeAgent.trim()) return;
+    void send({
+      SaveAgentProfile: {
+        agent_id: activeAgent,
+        identity_markdown: agentProfileIdentity,
+        memory_markdown: agentProfileMemory,
+      },
+    });
+  };
+
   const copyConfigJson = async () => {
     if (configSnapshot == null) {
       toast.error("尚无快照", { description: "请先打开设置并等待刷新。" });
@@ -586,6 +647,7 @@ export default function App() {
             agentsList={agentsList}
             activeAgent={activeAgent}
             onSelectAgent={(agent_id) => send({ SetActiveAgent: { agent_id } })}
+            onOpenAgentProfileEditor={() => setAgentProfileOpen(true)}
           />
 
           {/* 中：事件流 + 撰写 */}
@@ -788,6 +850,18 @@ export default function App() {
         healthReport={healthReport}
         policyTrail={policyTrail}
         auditTrail={auditTrail}
+      />
+
+      <AgentProfileSheet
+        open={agentProfileOpen}
+        onOpenChange={setAgentProfileOpen}
+        activeAgent={activeAgent}
+        identity={agentProfileIdentity}
+        memory={agentProfileMemory}
+        onIdentityChange={setAgentProfileIdentity}
+        onMemoryChange={setAgentProfileMemory}
+        loading={agentProfileLoading}
+        onSave={saveAgentProfile}
       />
 
       <SettingsDrawer

@@ -71,6 +71,21 @@ impl WorkspaceManager {
         })
     }
 
+    pub fn save_agent_profile(&self, agent_id: &str, identity: &str, memory: &str) -> Result<()> {
+        let agent_dir = self.root.join(agent_id);
+        if !agent_dir.exists() || !agent_dir.is_dir() {
+            return Err(KernelError::Message(format!(
+                "Agent profile not found: {}",
+                agent_id
+            )));
+        }
+        fs::write(agent_dir.join("IDENTITY.md"), identity)
+            .map_err(|e| KernelError::Message(e.to_string()))?;
+        fs::write(agent_dir.join("MEMORY.md"), memory)
+            .map_err(|e| KernelError::Message(e.to_string()))?;
+        Ok(())
+    }
+
     pub fn create_agent_profile(&self, agent_id: &str) -> Result<()> {
         let agent_dir = self.root.join(agent_id);
         if agent_dir.exists() {
