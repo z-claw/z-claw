@@ -92,6 +92,13 @@ pub enum UiCommand {
     MemoryForget {
         entry_id: String,
     },
+    /// Search messages in a session by text (case-insensitive substring match).
+    SearchSession {
+        session_id: String,
+        query: String,
+        #[serde(default = "default_search_limit")]
+        limit: usize,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -220,6 +227,12 @@ pub enum KernelEvent {
         /// True if an active knowledge row was soft-deleted.
         removed: bool,
     },
+    /// Results for a `SearchSession` command.
+    SessionSearchResults {
+        session_id: String,
+        query: String,
+        matches: Vec<HistoryMessage>,
+    },
     AuditEntry {
         record: AuditRecord,
     },
@@ -235,6 +248,10 @@ pub enum KernelEvent {
 
 fn default_history_limit() -> usize {
     200
+}
+
+fn default_search_limit() -> usize {
+    100
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

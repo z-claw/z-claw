@@ -7,6 +7,7 @@ use crate::multi_agent::{self, MergeStrategy};
 use crate::protocol::{KernelEvent, SwarmSubTask};
 use crate::provider::ChatMessage;
 use std::sync::Arc;
+use tokio::task::JoinSet;
 
 pub(super) async fn run_swarm_command(
     state: &Arc<KernelState>,
@@ -15,24 +16,49 @@ pub(super) async fn run_swarm_command(
 ) {
     let cap = state.policy.max_swarm_tasks();
     let tasks: Vec<SwarmSubTask> = tasks.into_iter().take(cap).collect();
-    let mut parts = vec![];
-    for t in tasks {
-        let r = run_swarm_worker(state, &session_id, &t.instruction).await;
-        let text = r.unwrap_or_else(|e| format!("(error: {e})"));
-        let _ = state.event_tx.send(KernelEvent::SwarmPartial {
-            session_id: session_id.clone(),
-            label: t.label.clone(),
-            text: text.clone(),
+
+    // Spawn all workers concurrently; track original index to preserve merge order.
+    let mut join_set: JoinSet<(usize, String, String)> = JoinSet::new();
+    for (idx, t) in tasks.into_iter().enumerate() {
+        let state = Arc::clone(state);
+        let session_id = session_id.clone();
+        join_set.spawn(async move {
+            let text = run_swarm_worker(&state, &session_id, &t.instruction)
+                .await
+                .unwrap_or_else(|e| format!("(error: {e})"));
+            let _ = state.event_tx.send(KernelEvent::SwarmPartial {
+                session_id: session_id.clone(),
+                label: t.label.clone(),
+                text: text.clone(),
+            });
+            (idx, t.label, text)
         });
-        parts.push((t.label, text));
     }
-    let merged = multi_agent::merge_swarm_results(MergeStrategy::ConcatSections, &parts);
-    let sid = session_id.clone();
+
+    // Collect results as workers complete, then sort to restore original order.
+    let mut parts: Vec<(usize, String, String)> = Vec::new();
+    while let Some(result) = join_set.join_next().await {
+        match result {
+            Ok(triple) => parts.push(triple),
+            Err(e) => {
+                let _ = state.event_tx.send(KernelEvent::Error {
+                    message: format!("swarm worker panicked: {e}"),
+                });
+            }
+        }
+    }
+    parts.sort_unstable_by_key(|(idx, _, _)| *idx);
+    let ordered: Vec<(String, String)> = parts
+        .into_iter()
+        .map(|(_, label, text)| (label, text))
+        .collect();
+
+    let merged = multi_agent::merge_swarm_results(MergeStrategy::ConcatSections, &ordered);
     let _ = state.event_tx.send(KernelEvent::SwarmMerged {
-        session_id: sid.clone(),
+        session_id: session_id.clone(),
         text: merged.clone(),
     });
-    if let Err(e) = persist_assistant_turn(state.as_ref(), &sid, &merged).await {
+    if let Err(e) = persist_assistant_turn(state.as_ref(), &session_id, &merged).await {
         let _ = state.event_tx.send(KernelEvent::Error {
             message: format!("swarm persist failed: {e}"),
         });

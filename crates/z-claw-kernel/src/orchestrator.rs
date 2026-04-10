@@ -439,6 +439,23 @@ async fn handle_command(state: &Arc<KernelState>, cmd: UiCommand) -> Result<()> 
                 removed,
             });
         }
+        UiCommand::SearchSession {
+            session_id,
+            query,
+            limit,
+        } => {
+            let cap = limit.clamp(1, 500);
+            let rows = state.memory.search_messages(&session_id, &query, cap)?;
+            let matches = rows
+                .into_iter()
+                .map(|(role, content)| crate::protocol::HistoryMessage { role, content })
+                .collect();
+            let _ = state.event_tx.send(KernelEvent::SessionSearchResults {
+                session_id,
+                query,
+                matches,
+            });
+        }
         UiCommand::RespondToolApproval { approval_id, approved } => {
             if let Some(tx) = state.pending_approvals.write().remove(&approval_id) {
                 let _ = tx.send(approved);

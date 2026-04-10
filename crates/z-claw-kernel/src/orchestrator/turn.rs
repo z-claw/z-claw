@@ -8,9 +8,17 @@ use crate::provider::{
 use futures_util::StreamExt;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
+use std::time::Duration;
 use uuid::Uuid;
 
 pub(super) const MAX_MODEL_TURN_ROUNDS: usize = 8;
+
+/// Timeout for `execute_command` built-in tool.
+const EXECUTE_COMMAND_TIMEOUT_SECS: u64 = 60;
+/// Maximum combined stdout+stderr bytes returned from `execute_command`.
+const EXECUTE_COMMAND_MAX_OUTPUT_BYTES: usize = 65_536; // 64 KB
+/// How long the kernel waits for a UI approval response before auto-rejecting.
+const TOOL_APPROVAL_TIMEOUT_SECS: u64 = 120;
 
 type ToolCallAccumulator = BTreeMap<usize, (Option<String>, Option<String>, String)>;
 
@@ -363,10 +371,48 @@ async fn execute_tool_call_result(
                 .send(KernelEvent::PolicyBlocked { code, message });
             format!("policy_blocked: {e}")
         }
-        Ok(()) => match execute_tool(state, session_id, call, args_map).await {
-            Ok(s) => s,
-            Err(e) => format!("tool_error: {e}"),
-        },
+        Ok(()) => {
+            // Require explicit user approval for dangerous tools when the policy is enabled.
+            if state.policy.require_tool_approval() && is_dangerous_tool(&call.name) {
+                let approval_id = Uuid::new_v4().to_string();
+                let (tx, rx) = tokio::sync::oneshot::channel::<bool>();
+                state
+                    .pending_approvals
+                    .write()
+                    .insert(approval_id.clone(), tx);
+                let _ = state.event_tx.send(KernelEvent::ToolApprovalRequested {
+                    approval_id: approval_id.clone(),
+                    session_id: session_id.to_string(),
+                    tool_name: call.name.clone(),
+                    arguments_json: call.arguments_json.clone(),
+                });
+                match tokio::time::timeout(
+                    Duration::from_secs(TOOL_APPROVAL_TIMEOUT_SECS),
+                    rx,
+                )
+                .await
+                {
+                    Ok(Ok(true)) => { /* approved — fall through to execute */ }
+                    Ok(Ok(false)) => {
+                        return "policy_blocked: tool execution rejected by user".into();
+                    }
+                    Ok(Err(_)) => {
+                        state.pending_approvals.write().remove(&approval_id);
+                        return "policy_blocked: tool approval channel closed".into();
+                    }
+                    Err(_elapsed) => {
+                        state.pending_approvals.write().remove(&approval_id);
+                        return format!(
+                            "policy_blocked: tool approval timed out after {TOOL_APPROVAL_TIMEOUT_SECS}s"
+                        );
+                    }
+                }
+            }
+            match execute_tool(state, session_id, call, args_map).await {
+                Ok(s) => s,
+                Err(e) => format!("tool_error: {e}"),
+            }
+        }
     }
 }
 
@@ -401,7 +447,7 @@ fn is_dangerous_tool(tool_name: &str) -> bool {
 
 async fn execute_tool(
     state: &KernelState,
-    session_id: &str,
+    _session_id: &str,
     call: &ResolvedToolCall,
     args: serde_json::Map<String, Value>,
 ) -> Result<String> {
@@ -465,10 +511,84 @@ async fn execute_tool(
             cmd.current_dir(dir);
         }
 
-        match cmd.output().await {
-            Ok(output) => {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                let stderr = String::from_utf8_lossy(&output.stderr);
+        // On Unix: put the child in a new process group so we can kill all
+        // sub-processes (not just the shell wrapper) when the timeout fires.
+        #[cfg(unix)]
+        cmd.process_group(0);
+
+        // Pipe stdout/stderr so we can stream-read with a byte cap, preventing
+        // a noisy command from allocating unbounded memory.
+        cmd.stdout(std::process::Stdio::piped());
+        cmd.stderr(std::process::Stdio::piped());
+
+        // Ensure the child is killed when its handle is dropped (e.g. on timeout).
+        cmd.kill_on_drop(true);
+
+        let mut child = match cmd.spawn() {
+            Ok(c) => c,
+            Err(e) => {
+                return Err(KernelError::Message(format!(
+                    "failed to spawn command: {}",
+                    e
+                )));
+            }
+        };
+
+        // Capture the PGID before consuming `child` into the async block.
+        // On Unix, PGID == PID when process_group(0) is used.
+        let pgid = child.id().map(|pid| pid as i32);
+
+        // Take the pipe handles now; the async block owns them.
+        let stdout_pipe = child.stdout.take().expect("piped stdout");
+        let stderr_pipe = child.stderr.take().expect("piped stderr");
+
+        match tokio::time::timeout(
+            Duration::from_secs(EXECUTE_COMMAND_TIMEOUT_SECS),
+            async {
+                use tokio::io::AsyncReadExt;
+                let cap = EXECUTE_COMMAND_MAX_OUTPUT_BYTES as u64;
+
+                // Read both streams concurrently, each capped at `cap` bytes.
+                // `AsyncReadExt::take` consumes the reader; dropping the returned
+                // `Take` closes the read end of the pipe, which sends SIGPIPE to
+                // the child if it tries to write beyond the cap.
+                let (stdout_bytes, stderr_bytes) = tokio::join!(
+                    async {
+                        let mut buf = Vec::new();
+                        let _ = stdout_pipe.take(cap).read_to_end(&mut buf).await;
+                        buf
+                    },
+                    async {
+                        let mut buf = Vec::new();
+                        let _ = stderr_pipe.take(cap).read_to_end(&mut buf).await;
+                        buf
+                    },
+                );
+
+                // Wait for the child to exit (it may already be gone).
+                let _ = child.wait().await;
+                (stdout_bytes, stderr_bytes)
+            },
+        )
+        .await
+        {
+            Err(_elapsed) => {
+                // kill_on_drop already sent SIGKILL to the direct child when the
+                // async block future was dropped. On Unix, also kill the entire
+                // process group to clean up any lingering sub-processes.
+                #[cfg(unix)]
+                if let Some(pgid) = pgid {
+                    use nix::sys::signal::{Signal, killpg};
+                    use nix::unistd::Pid;
+                    let _ = killpg(Pid::from_raw(pgid), Signal::SIGKILL);
+                }
+                return Err(KernelError::Message(format!(
+                    "command timed out after {EXECUTE_COMMAND_TIMEOUT_SECS} seconds"
+                )));
+            }
+            Ok((stdout_bytes, stderr_bytes)) => {
+                let stdout = String::from_utf8_lossy(&stdout_bytes);
+                let stderr = String::from_utf8_lossy(&stderr_bytes);
                 let mut res = String::new();
                 if !stdout.is_empty() {
                     res.push_str(&format!("STDOUT:\n{}\n", stdout));
@@ -479,13 +599,17 @@ async fn execute_tool(
                 if res.is_empty() {
                     res.push_str("Command executed successfully with no output.");
                 }
+                // Each stream was already capped at `cap` bytes while reading.
+                // Apply a final combined cap with safe UTF-8 truncation.
+                if res.len() > EXECUTE_COMMAND_MAX_OUTPUT_BYTES {
+                    let mut end = EXECUTE_COMMAND_MAX_OUTPUT_BYTES;
+                    while !res.is_char_boundary(end) {
+                        end -= 1;
+                    }
+                    res.truncate(end);
+                    res.push_str("\n[output truncated]");
+                }
                 return Ok(res);
-            }
-            Err(e) => {
-                return Err(KernelError::Message(format!(
-                    "failed to execute command: {}",
-                    e
-                )));
             }
         }
     } else if call.name == "read_file" {
@@ -567,38 +691,6 @@ async fn execute_tool(
             call.name
         )));
     };
-
-    if is_dangerous_tool(&call.name) {
-        let approval_id = Uuid::new_v4().to_string();
-        let (tx, rx) = tokio::sync::oneshot::channel();
-        state
-            .pending_approvals
-            .write()
-            .insert(approval_id.clone(), tx);
-
-        let _ = state.event_tx.send(KernelEvent::ToolApprovalRequested {
-            approval_id: approval_id.clone(),
-            session_id: session_id.to_string(),
-            tool_name: call.name.clone(),
-            arguments_json: call.arguments_json.clone(),
-        });
-
-        match rx.await {
-            Ok(true) => {
-                // proceed
-            }
-            Ok(false) => {
-                return Err(KernelError::Message(
-                    "Tool execution rejected by user".into(),
-                ));
-            }
-            Err(_) => {
-                return Err(KernelError::Message(
-                    "Tool execution approval channel dropped".into(),
-                ));
-            }
-        }
-    }
 
     state.mcp.call_on_server(&server_id, &tool_name, args).await
 }
