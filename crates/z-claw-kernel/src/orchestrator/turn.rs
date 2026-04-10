@@ -511,13 +511,44 @@ async fn execute_tool(
             cmd.current_dir(dir);
         }
 
+        // On Unix: put the child in a new process group so we can kill all
+        // sub-processes (not just the shell wrapper) when the timeout fires.
+        #[cfg(unix)]
+        cmd.process_group(0);
+
+        // Ensure the child is killed when its handle is dropped (e.g. on timeout).
+        cmd.kill_on_drop(true);
+
+        let child = match cmd.spawn() {
+            Ok(c) => c,
+            Err(e) => {
+                return Err(KernelError::Message(format!(
+                    "failed to spawn command: {}",
+                    e
+                )));
+            }
+        };
+
+        // Capture the PGID before wait_with_output() takes ownership of the child.
+        // On Unix, PGID == PID when process_group(0) is used.
+        let pgid = child.id().map(|pid| pid as i32);
+
         match tokio::time::timeout(
             Duration::from_secs(EXECUTE_COMMAND_TIMEOUT_SECS),
-            cmd.output(),
+            child.wait_with_output(),
         )
         .await
         {
             Err(_elapsed) => {
+                // kill_on_drop already sent SIGKILL to the direct child when the
+                // wait_with_output() future was dropped. On Unix, also kill the
+                // entire process group to clean up any lingering sub-processes.
+                #[cfg(unix)]
+                if let Some(pgid) = pgid {
+                    use nix::sys::signal::{Signal, killpg};
+                    use nix::unistd::Pid;
+                    let _ = killpg(Pid::from_raw(pgid), Signal::SIGKILL);
+                }
                 return Err(KernelError::Message(format!(
                     "command timed out after {EXECUTE_COMMAND_TIMEOUT_SECS} seconds"
                 )));
@@ -542,7 +573,12 @@ async fn execute_tool(
                     res.push_str("Command executed successfully with no output.");
                 }
                 if res.len() > EXECUTE_COMMAND_MAX_OUTPUT_BYTES {
-                    res.truncate(EXECUTE_COMMAND_MAX_OUTPUT_BYTES);
+                    // Truncate at a valid UTF-8 char boundary to avoid panics.
+                    let mut end = EXECUTE_COMMAND_MAX_OUTPUT_BYTES;
+                    while !res.is_char_boundary(end) {
+                        end -= 1;
+                    }
+                    res.truncate(end);
                     res.push_str("\n[output truncated]");
                 }
                 return Ok(res);
