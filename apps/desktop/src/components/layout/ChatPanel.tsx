@@ -125,7 +125,40 @@ export function ChatPanel({
                   {m.role === "assistant" ? (
                     /* Markdown rendering for assistant messages (#17) */
                     <div className="prose prose-sm prose-invert max-w-none text-[13px] leading-relaxed text-foreground/92 [&_code]:rounded [&_code]:bg-muted/60 [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[12px] [&_pre]:overflow-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:border-border/30 [&_pre]:bg-muted/40 [&_pre]:p-3 [&_pre_code]:bg-transparent [&_pre_code]:p-0">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                          // Strip images to prevent automatic external resource loads
+                          // (tracking pixels, privacy leaks) in the desktop webview.
+                          img: () => null,
+                          // Render links safely: block non-http(s) schemes; open
+                          // externally so the webview never navigates away.
+                          a: ({ href, children }) => {
+                            const safe =
+                              typeof href === "string" &&
+                              (href.startsWith("https://") ||
+                                href.startsWith("http://"));
+                            if (!safe) return <>{children}</>;
+                            return (
+                              <a
+                                href={href}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  window.open(
+                                    href,
+                                    "_blank",
+                                    "noopener,noreferrer",
+                                  );
+                                }}
+                              >
+                                {children}
+                              </a>
+                            );
+                          },
+                        }}
+                      >
                         {m.text || " "}
                       </ReactMarkdown>
                     </div>

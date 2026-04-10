@@ -516,10 +516,15 @@ async fn execute_tool(
         #[cfg(unix)]
         cmd.process_group(0);
 
+        // Pipe stdout/stderr so we can stream-read with a byte cap, preventing
+        // a noisy command from allocating unbounded memory.
+        cmd.stdout(std::process::Stdio::piped());
+        cmd.stderr(std::process::Stdio::piped());
+
         // Ensure the child is killed when its handle is dropped (e.g. on timeout).
         cmd.kill_on_drop(true);
 
-        let child = match cmd.spawn() {
+        let mut child = match cmd.spawn() {
             Ok(c) => c,
             Err(e) => {
                 return Err(KernelError::Message(format!(
@@ -529,20 +534,48 @@ async fn execute_tool(
             }
         };
 
-        // Capture the PGID before wait_with_output() takes ownership of the child.
+        // Capture the PGID before consuming `child` into the async block.
         // On Unix, PGID == PID when process_group(0) is used.
         let pgid = child.id().map(|pid| pid as i32);
 
+        // Take the pipe handles now; the async block owns them.
+        let stdout_pipe = child.stdout.take().expect("piped stdout");
+        let stderr_pipe = child.stderr.take().expect("piped stderr");
+
         match tokio::time::timeout(
             Duration::from_secs(EXECUTE_COMMAND_TIMEOUT_SECS),
-            child.wait_with_output(),
+            async {
+                use tokio::io::AsyncReadExt;
+                let cap = EXECUTE_COMMAND_MAX_OUTPUT_BYTES as u64;
+
+                // Read both streams concurrently, each capped at `cap` bytes.
+                // `AsyncReadExt::take` consumes the reader; dropping the returned
+                // `Take` closes the read end of the pipe, which sends SIGPIPE to
+                // the child if it tries to write beyond the cap.
+                let (stdout_bytes, stderr_bytes) = tokio::join!(
+                    async {
+                        let mut buf = Vec::new();
+                        let _ = stdout_pipe.take(cap).read_to_end(&mut buf).await;
+                        buf
+                    },
+                    async {
+                        let mut buf = Vec::new();
+                        let _ = stderr_pipe.take(cap).read_to_end(&mut buf).await;
+                        buf
+                    },
+                );
+
+                // Wait for the child to exit (it may already be gone).
+                let _ = child.wait().await;
+                (stdout_bytes, stderr_bytes)
+            },
         )
         .await
         {
             Err(_elapsed) => {
                 // kill_on_drop already sent SIGKILL to the direct child when the
-                // wait_with_output() future was dropped. On Unix, also kill the
-                // entire process group to clean up any lingering sub-processes.
+                // async block future was dropped. On Unix, also kill the entire
+                // process group to clean up any lingering sub-processes.
                 #[cfg(unix)]
                 if let Some(pgid) = pgid {
                     use nix::sys::signal::{Signal, killpg};
@@ -553,15 +586,9 @@ async fn execute_tool(
                     "command timed out after {EXECUTE_COMMAND_TIMEOUT_SECS} seconds"
                 )));
             }
-            Ok(Err(e)) => {
-                return Err(KernelError::Message(format!(
-                    "failed to execute command: {}",
-                    e
-                )));
-            }
-            Ok(Ok(output)) => {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                let stderr = String::from_utf8_lossy(&output.stderr);
+            Ok((stdout_bytes, stderr_bytes)) => {
+                let stdout = String::from_utf8_lossy(&stdout_bytes);
+                let stderr = String::from_utf8_lossy(&stderr_bytes);
                 let mut res = String::new();
                 if !stdout.is_empty() {
                     res.push_str(&format!("STDOUT:\n{}\n", stdout));
@@ -572,8 +599,9 @@ async fn execute_tool(
                 if res.is_empty() {
                     res.push_str("Command executed successfully with no output.");
                 }
+                // Each stream was already capped at `cap` bytes while reading.
+                // Apply a final combined cap with safe UTF-8 truncation.
                 if res.len() > EXECUTE_COMMAND_MAX_OUTPUT_BYTES {
-                    // Truncate at a valid UTF-8 char boundary to avoid panics.
                     let mut end = EXECUTE_COMMAND_MAX_OUTPUT_BYTES;
                     while !res.is_char_boundary(end) {
                         end -= 1;
