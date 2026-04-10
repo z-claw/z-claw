@@ -88,15 +88,22 @@ export function reduceTranscriptFromKernel(
     const sid = v.session_id;
     if (!sid) return bySession;
     const list = bySession[sid] ?? [];
-    // Update the most recent running tool_call entry that matches the tool name.
-    let updated = false;
-    const next = [...list].reverse().map((m) => {
-      if (!updated && m.role === "tool_call" && m.toolRunning && m.text === v.tool_name) {
-        updated = true;
-        return { ...m, toolRunning: false, toolOk: v.ok ?? true };
+    // Find the most recent running tool_call row that matches the tool name.
+    let lastIdx = -1;
+    for (let i = list.length - 1; i >= 0; i--) {
+      if (
+        list[i].role === "tool_call" &&
+        list[i].toolRunning &&
+        list[i].text === v.tool_name
+      ) {
+        lastIdx = i;
+        break;
       }
-      return m;
-    }).reverse();
+    }
+    if (lastIdx === -1) return { ...bySession, [sid]: list };
+    const next = list.map((m, i) =>
+      i === lastIdx ? { ...m, toolRunning: false, toolOk: v.ok ?? true } : m,
+    );
     return { ...bySession, [sid]: next };
   }
 

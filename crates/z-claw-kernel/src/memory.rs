@@ -263,7 +263,13 @@ impl MemoryEngine {
         query: &str,
         limit: usize,
     ) -> Result<Vec<(String, String)>> {
-        let pattern = format!("%{}%", query.replace('%', "\\%").replace('_', "\\_"));
+        // Escape backslashes first, then LIKE metacharacters so the search
+        // treats them as literals. The ESCAPE clause uses '\' as the escape char.
+        let escaped = query
+            .replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_");
+        let pattern = format!("%{escaped}%");
         let c = self.conn.lock();
         let mut stmt = c.prepare(
             "SELECT role, content FROM messages WHERE session_id = ?1 AND content LIKE ?2 ESCAPE '\\' ORDER BY created_ms ASC LIMIT ?3",
