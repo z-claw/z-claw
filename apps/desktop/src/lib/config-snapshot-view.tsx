@@ -190,7 +190,11 @@ export function ConfigSnapshotStructured({
                   <Row label="lazy" value={Boolean(m.lazy)} />
                   <Row
                     label="tool_namespace_prefix"
-                    value={String(m.tool_namespace_prefix ?? "")}
+                    value={
+                      m.tool_namespace_prefix == null
+                        ? m.tool_namespace_prefix
+                        : String(m.tool_namespace_prefix)
+                    }
                   />
                 </div>
               );
