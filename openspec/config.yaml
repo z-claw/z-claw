@@ -2,19 +2,21 @@ schema: spec-driven
 
 # Project context (optional)
 # This is shown to AI when creating artifacts.
-# Add your tech stack, conventions, style guides, domain knowledge, etc.
-# Example:
-#   context: |
-#     Tech stack: TypeScript, React, Node.js
-#     We use conventional commits
-#     Domain: e-commerce platform
+context: |
+  Repository: z-claw — pnpm workspaces monorepo (Node >= 20, package manager pnpm 9).
+  Desktop app: apps/desktop — Tauri 2, Vite, React 19, TypeScript; UI shared via packages/ui (workspace:*).
+  Tooling: ESLint + Prettier (Tailwind plugin); run lint/typecheck from repo root with pnpm -r.
+  Domain: desktop shell talks to a kernel over a bridge; UI concerns include agent identity/list controls,
+  ListAgents / SetActiveAgent style flows — align specs with actual message and component names in code.
+  OpenSpec skill files are duplicated under .claude/skills, .cursor/skills, .codex/skills, .agent/skills,
+  .opencode/skills, and .trae/skills; treat .claude/skills/openspec-* as the canonical copy when updating workflows.
 
 # Per-artifact rules (optional)
-# Add custom rules for specific artifacts.
-# Example:
-#   rules:
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always include a "Non-goals" section
-#     tasks:
-#       - Break tasks into chunks of max 2 hours
+rules:
+  proposal:
+    - Include a clear problem statement and scope; add a Non-goals section when scope could be misread.
+    - Prefer under 800 words unless the change is genuinely large.
+  tasks:
+    - Each task should be a single verifiable step; group related work; aim for chunks that fit one focused session.
+  design:
+    - Name affected apps/packages and key files or modules when known; call out bridge/kernel boundaries for UI work.

@@ -12,13 +12,15 @@
     "format": "prettier --write \"apps/**/*.{ts,tsx}\" \"packages/**/*.{ts,tsx}\"",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
+    "tauri:build": "tauri build",
+    "openspec": "openspec"
   },
   "packageManager": "pnpm@9.15.9",
   "engines": {
     "node": ">=20"
   },
   "devDependencies": {
+    "@fission-ai/openspec": "^1.2.0",
     "@tauri-apps/cli": "^2.10.1",
     "prettier": "^3.8.1",
     "prettier-plugin-tailwindcss": "^0.7.2",
