@@ -17,8 +17,9 @@ context: |
   Tooling: ESLint + Prettier (Tailwind); from repo root use pnpm -r for lint/typecheck; Rust: cargo test -p z-claw-kernel.
   Git: feature branches from main; PRs should pass lint/typecheck and keep OpenSpec artifacts consistent with code.
 
-  OpenSpec skill files are duplicated under .claude/skills, .cursor/skills, .codex/skills, .agent/skills,
-  .opencode/skills, and .trae/skills; treat .claude/skills/openspec-* as the canonical copy when updating workflows.
+  Agent skills (openspec-* and github-*) are authored under **.skills/** at the repo root (single source of truth).
+  Run **pnpm sync-skills** to copy them into .agent/skills, .claude/skills, .codex/skills, .cursor/skills,
+  .opencode/skills, and .trae/skills (those copies are git-ignored except each folder's .gitignore).
   Human overview: see README.md in the repository root.
 
 # Per-artifact rules (optional)

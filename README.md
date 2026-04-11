@@ -8,6 +8,7 @@
 - `crates/z-claw-kernel`：Rust 内核（会话、工具、工作区智能体档案等）
 - `packages/ui`：共享 UI（shadcn 风格组件）
 - `openspec/`：OpenSpec 规格；项目级上下文见 `[openspec/config.yaml](openspec/config.yaml)`
+- `.skills/`：各 AI 工具链共用的 Agent Skills（`openspec-*`、`github-*` 等）；修改后执行根目录 `pnpm sync-skills` 同步到 `.agent`、`.claude`、`.codex`、`.cursor`、`.opencode`、`.trae` 下的 `skills/`（这些目录内除 `.gitignore` 外不纳入 Git，避免重复）
 
 ## OpenSpec
 
