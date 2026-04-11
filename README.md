@@ -29,4 +29,4 @@
 | 国际化 | #10 | 未落地 | 无 i18n 框架，界面为中文文案 |
 | OpenSpec 项目上下文 | #11 | 已落地 | `openspec/config.yaml` 含 `context` 与 `rules` |
 
-定时任务：添加/删除任务后，桌面端在收到 `ScheduleJobAdded` / `ScheduleJobRemoved` 时会自动请求 `ScheduleList` 刷新列表（见 `App.tsx` 内核对逻辑）。
+定时任务：添加/删除任务后，桌面端在收到 `ScheduleJobAdded` / `ScheduleJobRemoved` 时会自动请求 `ScheduleList` 刷新列表（见 `App.tsx` 内核对接逻辑）。
