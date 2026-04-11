@@ -1,7 +1,7 @@
 /**
  * One-off / maintenance: edit the `zh` / `en` objects below, then run:
  *   node scripts/write-locale-json.mjs
- * to regenerate src-tauri/resources/locales/*.json and public/locales/*.json
+ * to regenerate src-tauri/resources/locales/*.json
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -11,7 +11,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const desktopRoot = path.resolve(__dirname, "..");
 const repoRoot = path.resolve(desktopRoot, "../..");
 const tauriLocales = path.join(repoRoot, "src-tauri/resources/locales");
-const publicLocales = path.join(desktopRoot, "public/locales");
 
 const zh = {
   sidebar: {
@@ -549,16 +548,13 @@ const en = {
 };
 
 fs.mkdirSync(tauriLocales, { recursive: true });
-fs.mkdirSync(publicLocales, { recursive: true });
 
 for (const [name, data] of [
   ["zh", zh],
   ["en", en],
 ]) {
   const text = JSON.stringify(data, null, 2);
-  const p1 = path.join(tauriLocales, `${name}.json`);
-  const p2 = path.join(publicLocales, `${name}.json`);
-  fs.writeFileSync(p1, text, "utf8");
-  fs.writeFileSync(p2, text, "utf8");
-  console.log("wrote", p1, p2);
+  const p = path.join(tauriLocales, `${name}.json`);
+  fs.writeFileSync(p, text, "utf8");
+  console.log("wrote", p);
 }

@@ -4,7 +4,7 @@
 
 ## 仓库结构
 
-- `apps/desktop`：Tauri 2 + Vite + React 桌面壳，经 `kernel_send` 与内核通信；`pnpm locales` 将 `src-tauri/resources/locales` 同步到 `public/locales` 供纯 Vite 开发时 `fetch`
+- `apps/desktop`：Tauri 2 + Vite + React 桌面壳，经 `kernel_send` 与内核通信；界面词条由 Tauri 从 `src-tauri/resources/locales`（`bundle.resources`）加载，勿单独用浏览器打开 `pnpm dev` 调试完整 UI
 - `crates/z-claw-kernel`：Rust 内核（会话、工具、工作区智能体档案等）
 - `packages/ui`：共享 UI（shadcn 风格组件）
 - `openspec/`：OpenSpec 规格；项目级上下文见 `[openspec/config.yaml](openspec/config.yaml)`

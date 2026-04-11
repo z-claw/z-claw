@@ -10,28 +10,17 @@ function isTauriWebview(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
-async function fetchLocaleFromDevServer(lang: AppLocale): Promise<Record<string, unknown>> {
-  const res = await fetch(`/locales/${lang}.json`);
-  if (!res.ok) {
-    throw new Error(`Failed to load /locales/${lang}.json (${res.status})`);
-  }
-  return (await res.json()) as Record<string, unknown>;
-}
-
 async function loadLocaleJson(lang: AppLocale): Promise<Record<string, unknown>> {
-  if (isTauriWebview()) {
-    try {
-      const text = await invoke<string>("read_locale_file", { lang });
-      return JSON.parse(text) as Record<string, unknown>;
-    } catch {
-      // 资源路径异常或 dev 环境未就绪时，回退到 Vite 提供的 public/locales（与 tauri dev 同源）
-      return fetchLocaleFromDevServer(lang);
-    }
+  if (!isTauriWebview()) {
+    throw new Error(
+      "界面词条由 Tauri 从打包资源加载。请使用 `pnpm tauri dev` 或运行桌面应用，不要单独 `pnpm dev` 在浏览器中调试完整 UI。",
+    );
   }
-  return fetchLocaleFromDevServer(lang);
+  const text = await invoke<string>("read_locale_file", { lang });
+  return JSON.parse(text) as Record<string, unknown>;
 }
 
-/** 从 Tauri 资源目录（或 dev 下 public/locales）加载词条后初始化 i18n；须在 render 前 await。 */
+/** 从 Tauri `bundle.resources`（`read_locale_file`）加载词条；须在 render 前 await。 */
 export async function bootstrapI18n(): Promise<void> {
   const prefs = loadUiPrefs();
   const [zh, en] = await Promise.all([
