@@ -1,4 +1,5 @@
 import { ChevronDown, FileDown, Stethoscope } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "@workspace/ui/components/button";
 import {
@@ -16,6 +17,16 @@ import {
 } from "@workspace/ui/components/sheet";
 import { ConfigSnapshotStructured } from "@/lib/config-snapshot-view";
 import { downloadJsonFile } from "@/lib/export-markdown";
+import i18n from "@/lib/i18n";
+import { saveUiPrefs, type AppLocale } from "@/lib/ui-prefs";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@workspace/ui/components/select";
+import { Label } from "@workspace/ui/components/label";
 
 export interface SettingsDrawerProps {
   open: boolean;
@@ -34,6 +45,7 @@ export function SettingsDrawer({
   onRunHealthCheck,
   onCopyConfigJson,
 }: SettingsDrawerProps) {
+  const { t } = useTranslation();
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
@@ -41,18 +53,17 @@ export function SettingsDrawer({
         className="flex w-full flex-col gap-0 border-border/50 bg-card/95 shadow-2xl sm:max-w-md"
       >
         <SheetHeader className="space-y-1 border-b border-border/35 bg-card/50 pb-4 text-left">
-          <SheetTitle className="font-heading text-foreground">设置</SheetTitle>
+          <SheetTitle className="font-heading text-foreground">
+            {t("settings.title")}
+          </SheetTitle>
           <SheetDescription className="text-[11px] leading-relaxed text-muted-foreground/90">
-            下方为结构化只读视图（不含 API 密钥，仅环境变量名等）。完整 JSON
-            可展开查看或导出。修改配置请编辑「实际读取路径」下的{" "}
-            <code className="font-mono text-[10px]">config.json</code>
-            ；打开本面板或「刷新快照」会从磁盘重载；发消息前也会尝试重载。
+            {t("settings.description")}
           </SheetDescription>
           {configSnapshot !== null &&
             typeof configSnapshot === "object" &&
             "config_file_path" in configSnapshot && (
               <p className="mt-2 break-all rounded-md border border-border/40 bg-muted/30 px-2 py-1.5 font-mono text-[10px] leading-snug text-foreground/85">
-                实际读取路径：{" "}
+                {t("settings.configPathLabel")}{" "}
                 {String(
                   (configSnapshot as { config_file_path?: unknown })
                     .config_file_path ?? "",
@@ -60,6 +71,29 @@ export function SettingsDrawer({
               </p>
             )}
         </SheetHeader>
+        <div className="flex flex-col gap-3 border-b border-border/25 px-4 py-3">
+          <div className="flex flex-col gap-1.5">
+            <Label className="text-[11px] text-muted-foreground">
+              {t("settings.language")}
+            </Label>
+            <Select
+              value={(i18n.language === "en" ? "en" : "zh") as AppLocale}
+              onValueChange={(v) => {
+                const loc = v as AppLocale;
+                void i18n.changeLanguage(loc);
+                saveUiPrefs({ locale: loc });
+              }}
+            >
+              <SelectTrigger size="sm" className="h-8 w-full max-w-xs font-mono text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="zh">{t("settings.languageZh")}</SelectItem>
+                <SelectItem value="en">{t("settings.languageEn")}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
         <div className="flex flex-wrap gap-2 py-3 px-4">
           <Button
             size="sm"
@@ -67,7 +101,7 @@ export function SettingsDrawer({
             className="font-mono text-xs"
             onClick={onRefreshConfig}
           >
-            刷新快照
+            {t("settings.refreshSnapshot")}
           </Button>
           <Button
             size="sm"
@@ -76,7 +110,7 @@ export function SettingsDrawer({
             onClick={onRunHealthCheck}
           >
             <Stethoscope className="mr-1 size-3.5" />
-            运行自检
+            {t("settings.runHealth")}
           </Button>
           <Button
             size="sm"
@@ -85,7 +119,7 @@ export function SettingsDrawer({
             onClick={onCopyConfigJson}
             disabled={configSnapshot == null}
           >
-            复制 JSON
+            {t("settings.copyJson")}
           </Button>
           <Button
             size="sm"
@@ -98,11 +132,11 @@ export function SettingsDrawer({
                 `z-claw-config-snapshot-${Date.now()}.json`,
                 configSnapshot,
               );
-              toast.success("已下载配置快照 JSON");
+              toast.success(t("toast.configSnapshotDownloaded"));
             }}
           >
             <FileDown className="mr-1 size-3.5" />
-            导出 JSON
+            {t("settings.exportJson")}
           </Button>
         </div>
         <ScrollArea className="min-h-0 flex-1 px-4 pb-4">
@@ -110,13 +144,13 @@ export function SettingsDrawer({
             <ConfigSnapshotStructured snapshot={configSnapshot} />
             <Collapsible className="rounded-md border border-border/35 bg-muted/15">
               <CollapsibleTrigger className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left font-mono text-xs text-muted-foreground hover:text-foreground">
-                <span>原始 JSON（调试用）</span>
+                <span>{t("settings.rawJson")}</span>
                 <ChevronDown className="size-4 shrink-0 opacity-70" />
               </CollapsibleTrigger>
               <CollapsibleContent className="border-t border-border/30 px-0 pb-3">
                 <pre className="max-h-[min(40vh,320px)] overflow-auto whitespace-pre-wrap break-all px-3 pt-2 font-mono text-[10px] leading-relaxed text-foreground/85">
                   {configSnapshot == null
-                    ? "打开本面板时会自动请求快照…"
+                    ? t("settings.waitingSnapshot")
                     : JSON.stringify(configSnapshot, null, 2)}
                 </pre>
               </CollapsibleContent>

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Window, type WindowOptions } from "@tauri-apps/api/window";
 import {
   Copy,
@@ -38,6 +39,7 @@ export function TitleBar({
   onOpenSettings,
   onOpenInspector,
 }: TitleBarProps) {
+  const { t } = useTranslation();
   const tauri = isTauriWebview();
   const appWindow = useMemo(() => (tauri ? getMainWindow() : null), [tauri]);
   const [maximized, setMaximized] = useState(false);
@@ -81,14 +83,16 @@ export function TitleBar({
         toast.error(label, { description: msg });
       }
     },
-    [],
+    [t],
   );
 
   const dragProps = tauri
     ? ({
         "data-tauri-drag-region": true,
         onDoubleClick: () =>
-          void runWindowOp("无法切换最大化", () => appWindow!.toggleMaximize()),
+          void runWindowOp(t("titleBar.toggleMaxFailed"), () =>
+            appWindow!.toggleMaximize(),
+          ),
       } as const)
     : {};
 
@@ -116,11 +120,11 @@ export function TitleBar({
           </div>
           {tauri ? (
             <p className="mt-0.5 hidden truncate text-[10px] leading-tight text-muted-foreground/85 md:block">
-              拖动标题栏移动窗口 · 双击最大化
+              {t("titleBar.dragHint")}
             </p>
           ) : (
             <p className="mt-0.5 hidden truncate text-[10px] text-muted-foreground/85 sm:block">
-              本地 Agent 控制台
+              {t("titleBar.webSubtitle")}
             </p>
           )}
         </div>
@@ -143,7 +147,9 @@ export function TitleBar({
               ? "bg-emerald-950/40 text-emerald-100/95"
               : "bg-muted/60 text-muted-foreground",
           )}
-          title={kernelReady ? "内核已连接" : "正在连接内核"}
+          title={
+            kernelReady ? t("titleBar.kernelConnected") : t("titleBar.kernelConnecting")
+          }
         >
           <span
             className={cn(
@@ -152,16 +158,16 @@ export function TitleBar({
             )}
           />
           <span className="hidden sm:inline">
-            {kernelReady ? "已连接" : "连接中"}
+            {kernelReady ? t("titleBar.statusConnected") : t("titleBar.statusConnecting")}
           </span>
         </div>
 
         <div
           className="flex min-w-0 max-w-[9.5rem] items-center rounded-md border border-border/45 bg-background/45 px-1.5 py-0.5 sm:max-w-[14rem]"
-          title={sessionId ?? "未选会话"}
+          title={sessionId ?? t("titleBar.noSession")}
         >
           <span className="min-w-0 flex-1 truncate px-0.5 font-mono text-[10px] text-foreground/85 sm:text-[11px]">
-            {sessionId ?? "未选择会话"}
+            {sessionId ?? t("titleBar.noSessionLong")}
           </span>
           <Button
             type="button"
@@ -170,7 +176,7 @@ export function TitleBar({
             className="size-7 shrink-0 text-muted-foreground hover:text-foreground"
             disabled={!sessionId}
             onClick={() => onCopySessionId()}
-            title="复制会话 ID"
+            title={t("titleBar.copySessionId")}
           >
             <Copy className="size-3.5" />
           </Button>
@@ -183,7 +189,7 @@ export function TitleBar({
             size="icon-sm"
             className="size-8 text-muted-foreground hover:bg-background/60 hover:text-foreground"
             onClick={() => onOpenInspector()}
-            title="检查器"
+            title={t("titleBar.inspector")}
           >
             <PanelRight className="size-4" />
           </Button>
@@ -193,7 +199,7 @@ export function TitleBar({
             size="icon-sm"
             className="size-8 text-muted-foreground hover:bg-background/60 hover:text-foreground"
             onClick={() => onOpenSettings()}
-            title="设置"
+            title={t("titleBar.settings")}
           >
             <Settings2 className="size-4" />
           </Button>
@@ -205,9 +211,11 @@ export function TitleBar({
               type="button"
               className="flex w-9 items-center justify-center text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground sm:w-10"
               onClick={() =>
-                void runWindowOp("无法最小化", () => appWindow.minimize())
+                void runWindowOp(t("titleBar.minimizeFailed"), () =>
+                  appWindow.minimize(),
+                )
               }
-              aria-label="最小化"
+              aria-label={t("titleBar.ariaMinimize")}
             >
               <Minus className="size-4" strokeWidth={2} />
             </button>
@@ -215,9 +223,13 @@ export function TitleBar({
               type="button"
               className="flex w-9 items-center justify-center text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground sm:w-10"
               onClick={() =>
-                void runWindowOp("无法最大化", () => appWindow.toggleMaximize())
+                void runWindowOp(t("titleBar.maximizeFailed"), () =>
+                  appWindow.toggleMaximize(),
+                )
               }
-              aria-label={maximized ? "还原" : "最大化"}
+              aria-label={
+                maximized ? t("titleBar.ariaRestore") : t("titleBar.ariaMaximize")
+              }
             >
               {maximized ? (
                 <SquareStack className="size-3.5" strokeWidth={2} />
@@ -232,9 +244,11 @@ export function TitleBar({
                 "hover:bg-destructive/80 hover:text-destructive-foreground",
               )}
               onClick={() =>
-                void runWindowOp("无法关闭", () => appWindow.close())
+                void runWindowOp(t("titleBar.closeFailed"), () =>
+                  appWindow.close(),
+                )
               }
-              aria-label="关闭"
+              aria-label={t("titleBar.ariaClose")}
             >
               <X className="size-4" strokeWidth={2} />
             </button>

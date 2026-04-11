@@ -4,6 +4,7 @@
   "type": "module",
   "private": true,
   "scripts": {
+    "locales": "node scripts/write-locale-json.mjs",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint",

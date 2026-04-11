@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import {
   Card,
   CardContent,
@@ -13,6 +14,9 @@ function Row({
   label: string;
   value: string | number | boolean | null | undefined;
 }) {
+  const { t } = useTranslation();
+  const boolYes = t("configSnapshot.boolYes");
+  const boolNo = t("configSnapshot.boolNo");
   const v =
     value === null || value === undefined
       ? "—"
@@ -20,8 +24,8 @@ function Row({
         ? "—"
         : typeof value === "boolean"
           ? value
-            ? "是"
-            : "否"
+            ? boolYes
+            : boolNo
           : String(value);
   return (
     <div className="grid grid-cols-[minmax(0,38%)_minmax(0,62%)] gap-x-2 gap-y-0.5 text-[11px] leading-snug">
@@ -60,10 +64,11 @@ export function ConfigSnapshotStructured({
 }: {
   snapshot: unknown | null;
 }) {
+  const { t } = useTranslation();
   if (snapshot == null) {
     return (
       <p className="rounded-md border border-dashed border-border/40 bg-muted/20 px-3 py-8 text-center text-[11px] text-muted-foreground">
-        尚无快照，请点击「刷新快照」。
+        {t("configSnapshot.empty")}
       </p>
     );
   }
@@ -87,7 +92,7 @@ export function ConfigSnapshotStructured({
 
   return (
     <div className="flex flex-col gap-3">
-      <Section title="默认">
+      <Section title={t("configSnapshot.sectionDefault")}>
         <div className="space-y-2">
           <Row
             label="default_provider_id"
@@ -105,7 +110,7 @@ export function ConfigSnapshotStructured({
       </Section>
 
       {runtime && (
-        <Section title="运行时（快照附带）">
+        <Section title={t("configSnapshot.sectionRuntime")}>
           <div className="space-y-2">
             {"model" in runtime && (
               <Row label="model" value={String(runtime.model ?? "")} />
@@ -141,9 +146,15 @@ export function ConfigSnapshotStructured({
         </Section>
       )}
 
-      <Section title={`提供商 (${providers.length})`}>
+      <Section
+        title={t("configSnapshot.sectionProviders", {
+          count: providers.length,
+        })}
+      >
         {providers.length === 0 ? (
-          <p className="text-[11px] text-muted-foreground">无</p>
+          <p className="text-[11px] text-muted-foreground">
+            {t("configSnapshot.none")}
+          </p>
         ) : (
           <div className="space-y-3">
             {providers.map((p, i) => {
@@ -169,9 +180,13 @@ export function ConfigSnapshotStructured({
         )}
       </Section>
 
-      <Section title={`MCP 服务 (${mcpServers.length})`}>
+      <Section
+        title={t("configSnapshot.sectionMcp", { count: mcpServers.length })}
+      >
         {mcpServers.length === 0 ? (
-          <p className="text-[11px] text-muted-foreground">无</p>
+          <p className="text-[11px] text-muted-foreground">
+            {t("configSnapshot.none")}
+          </p>
         ) : (
           <div className="space-y-3">
             {mcpServers.map((m, i) => {
@@ -204,7 +219,7 @@ export function ConfigSnapshotStructured({
       </Section>
 
       {routing && (
-        <Section title="路由 fallback">
+        <Section title={t("configSnapshot.sectionRouting")}>
           <Row
             label="fallback_chain"
             value={
@@ -217,7 +232,7 @@ export function ConfigSnapshotStructured({
       )}
 
       {policy && (
-        <Section title="策略">
+        <Section title={t("configSnapshot.sectionPolicy")}>
           <div className="space-y-2">
             <Row
               label="allowed_path_prefixes"
@@ -245,7 +260,7 @@ export function ConfigSnapshotStructured({
       )}
 
       {memory && (
-        <Section title="记忆 / 压缩">
+        <Section title={t("configSnapshot.sectionMemory")}>
           <div className="space-y-2">
             <Row
               label="compaction_enabled"

@@ -1,12 +1,16 @@
 import type { TranscriptMsg } from "@/lib/transcript";
+import i18n from "@/lib/i18n";
 
 export function transcriptToMarkdown(
   sessionId: string,
   lines: TranscriptMsg[],
 ): string {
-  const head = `# z-claw 会话\n\n- session: \`${sessionId}\`\n- exported: ${new Date().toISOString()}\n\n---\n\n`;
+  const head = `# ${i18n.t("export.markdownHeading")}\n\n- ${i18n.t("export.sessionLine")}: \`${sessionId}\`\n- ${i18n.t("export.exportedLine")}: ${new Date().toISOString()}\n\n---\n\n`;
   const body = lines
-    .map((m) => `## ${m.role}${m.streaming ? " (streaming)" : ""}\n\n${m.text}\n`)
+    .map(
+      (m) =>
+        `## ${m.role}${m.streaming ? i18n.t("export.streamingSuffix") : ""}\n\n${m.text}\n`,
+    )
     .join("\n");
   return head + body;
 }

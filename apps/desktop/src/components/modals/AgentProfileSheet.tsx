@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import {
   Sheet,
   SheetContent,
@@ -34,47 +35,45 @@ export function AgentProfileSheet({
   loading,
   onSave,
 }: AgentProfileSheetProps) {
+  const { t } = useTranslation();
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="w-full gap-0 sm:max-w-lg">
         <SheetHeader className="border-b border-border/35 pb-3 text-left">
-          <SheetTitle className="text-base">编辑智能体档案</SheetTitle>
+          <SheetTitle className="text-base">{t("agentProfile.title")}</SheetTitle>
           <SheetDescription className="text-xs">
-            对应工作区目录{" "}
-            <span className="font-mono text-foreground/90">{activeAgent}</span>
-            下的 <span className="font-mono">IDENTITY.md</span> 与{" "}
-            <span className="font-mono">MEMORY.md</span>。保存后立即生效于后续对话与委派。
+            {t("agentProfile.description", { agent: activeAgent })}
           </SheetDescription>
         </SheetHeader>
         <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4">
           {loading ? (
             <div className="flex flex-1 flex-col items-center justify-center gap-3 py-16 text-muted-foreground">
               <Spinner className="size-6" />
-              <p className="text-xs">正在从磁盘加载档案…</p>
+              <p className="text-xs">{t("agentProfile.loading")}</p>
             </div>
           ) : (
             <>
               <div className="space-y-2">
                 <Label htmlFor="agent-identity" className="text-xs">
-                  Identity（IDENTITY.md）
+                  {t("agentProfile.identityLabel")}
                 </Label>
                 <Textarea
                   id="agent-identity"
                   value={identity}
                   onChange={(e) => onIdentityChange(e.target.value)}
-                  placeholder="系统提示 / 人格描述"
+                  placeholder={t("agentProfile.identityPlaceholder")}
                   className="min-h-[140px] resize-y font-mono text-xs leading-relaxed"
                 />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="agent-memory" className="text-xs">
-                  Memory（MEMORY.md）
+                  {t("agentProfile.memoryLabel")}
                 </Label>
                 <Textarea
                   id="agent-memory"
                   value={memory}
                   onChange={(e) => onMemoryChange(e.target.value)}
-                  placeholder="长期记忆要点（Markdown 列表等）"
+                  placeholder={t("agentProfile.memoryPlaceholder")}
                   className="min-h-[120px] resize-y font-mono text-xs leading-relaxed"
                 />
               </div>
@@ -88,7 +87,7 @@ export function AgentProfileSheet({
             size="sm"
             onClick={() => onOpenChange(false)}
           >
-            关闭
+            {t("agentProfile.close")}
           </Button>
           <Button
             type="button"
@@ -96,7 +95,7 @@ export function AgentProfileSheet({
             disabled={loading || !activeAgent}
             onClick={() => onSave()}
           >
-            保存到磁盘
+            {t("agentProfile.save")}
           </Button>
         </SheetFooter>
       </SheetContent>

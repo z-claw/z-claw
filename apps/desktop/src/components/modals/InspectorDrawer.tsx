@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Stethoscope, Users } from "lucide-react";
 
 import { Badge } from "@workspace/ui/components/badge";
@@ -129,6 +130,7 @@ export function InspectorDrawer({
   policyTrail,
   auditTrail,
 }: InspectorDrawerProps) {
+  const { t } = useTranslation();
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
@@ -140,10 +142,10 @@ export function InspectorDrawer({
             <span className="flex size-8 items-center justify-center rounded-md bg-primary/12 text-primary">
               <Users className="size-4" />
             </span>
-            检查器
+            {t("inspector.title")}
           </SheetTitle>
           <SheetDescription className="text-[11px] leading-relaxed text-muted-foreground/90">
-            记忆、调度、MCP、Agent 与系统状态；所选 Tab 会保存在本机。
+            {t("inspector.description")}
           </SheetDescription>
         </SheetHeader>
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background/20 px-4 pb-4 pt-3">
@@ -160,31 +162,31 @@ export function InspectorDrawer({
                 value="memory"
                 className="shrink-0 rounded-md px-2.5 text-xs sm:px-3"
               >
-                记忆
+                {t("inspector.tabMemory")}
               </TabsTrigger>
               <TabsTrigger
                 value="schedule"
                 className="shrink-0 rounded-md px-2.5 text-xs sm:px-3"
               >
-                调度
+                {t("inspector.tabSchedule")}
               </TabsTrigger>
               <TabsTrigger
                 value="mcp"
                 className="shrink-0 rounded-md px-2.5 text-xs sm:px-3"
               >
-                MCP
+                {t("inspector.tabMcp")}
               </TabsTrigger>
               <TabsTrigger
                 value="agents"
                 className="shrink-0 rounded-md px-2.5 text-xs sm:px-3"
               >
-                Agent
+                {t("inspector.tabAgents")}
               </TabsTrigger>
               <TabsTrigger
                 value="system"
                 className="shrink-0 rounded-md px-2.5 text-xs sm:px-3"
               >
-                系统
+                {t("inspector.tabSystem")}
               </TabsTrigger>
             </TabsList>
             
@@ -194,31 +196,25 @@ export function InspectorDrawer({
             >
               <FieldGroup className="gap-4">
                 <Field>
-                  <FieldLabel>检索查询</FieldLabel>
+                  <FieldLabel>{t("inspector.memoryQuery")}</FieldLabel>
                   <FieldContent>
                     <Input
                       value={memoryQuery}
                       onChange={(e) => setMemoryQuery(e.target.value)}
-                      placeholder="关键词…"
+                      placeholder={t("inspector.keywordPlaceholder")}
                       className="font-mono text-xs"
                     />
                   </FieldContent>
                 </Field>
                 <Field>
-                  <FieldLabel>Token 预算</FieldLabel>
+                  <FieldLabel>{t("inspector.tokenBudget")}</FieldLabel>
                   <FieldContent>
                     <Input
                       value={memoryBudget}
                       onChange={(e) => setMemoryBudget(e.target.value)}
                       className="font-mono text-xs"
                     />
-                    <FieldDescription>
-                      请求预算；内核会按配置中的{" "}
-                      <code className="font-mono text-[10px]">
-                        memory.max_recall_budget_tokens
-                      </code>{" "}
-                      裁剪上限。
-                    </FieldDescription>
+                    <FieldDescription>{t("inspector.tokenBudgetHint")}</FieldDescription>
                   </FieldContent>
                 </Field>
                 <Button
@@ -228,7 +224,7 @@ export function InspectorDrawer({
                   onClick={recallMemory}
                   className="w-full font-mono text-xs"
                 >
-                  召回记忆
+                  {t("inspector.recall")}
                 </Button>
                 {memoryPreview &&
                   sessionId &&
@@ -236,7 +232,7 @@ export function InspectorDrawer({
                   memoryPreview.snippets.length > 0 && (
                     <div className="rounded-md border border-border/40 bg-muted/20 p-3">
                       <p className="mb-2 font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
-                        最近召回
+                        {t("inspector.recentRecall")}
                       </p>
                       <ScrollArea className="max-h-40">
                         <ul className="space-y-2 pr-2">
@@ -254,21 +250,15 @@ export function InspectorDrawer({
                   )}
                 <Separator className="bg-border/40" />
                 <Field>
-                  <FieldLabel>按 entry_id 遗忘</FieldLabel>
+                  <FieldLabel>{t("inspector.forgetById")}</FieldLabel>
                   <FieldContent>
                     <Input
                       value={memoryForgetId}
                       onChange={(e) => setMemoryForgetId(e.target.value)}
-                      placeholder="条目 ID…"
+                      placeholder={t("inspector.entryIdPlaceholder")}
                       className="font-mono text-xs"
                     />
-                    <FieldDescription>
-                      知识片段首行含{" "}
-                      <code className="font-mono text-[10px]">id=…</code>
-                      ，可复制到此处；仅作重于{" "}
-                      <code className="font-mono text-[10px]">knowledge</code>{" "}
-                      表条目。
-                    </FieldDescription>
+                    <FieldDescription>{t("inspector.forgetHint")}</FieldDescription>
                   </FieldContent>
                 </Field>
                 <Button
@@ -278,7 +268,7 @@ export function InspectorDrawer({
                   onClick={forgetMemory}
                   className="w-full font-mono text-xs"
                 >
-                  遗忘条目
+                  {t("inspector.forgetEntry")}
                 </Button>
               </FieldGroup>
             </TabsContent>
@@ -289,7 +279,7 @@ export function InspectorDrawer({
             >
               <FieldGroup className="gap-4">
                 <Field>
-                  <FieldLabel>Cron</FieldLabel>
+                  <FieldLabel>{t("inspector.cron")}</FieldLabel>
                   <FieldContent>
                     <Input
                       value={schedCron}
@@ -300,7 +290,7 @@ export function InspectorDrawer({
                   </FieldContent>
                 </Field>
                 <Field>
-                  <FieldLabel>时区</FieldLabel>
+                  <FieldLabel>{t("inspector.timezone")}</FieldLabel>
                   <FieldContent>
                     <Input
                       value={schedTz}
@@ -310,7 +300,7 @@ export function InspectorDrawer({
                   </FieldContent>
                 </Field>
                 <Field>
-                  <FieldLabel>提示词</FieldLabel>
+                  <FieldLabel>{t("inspector.prompt")}</FieldLabel>
                   <FieldContent>
                     <Textarea
                       value={schedPrompt}
@@ -324,11 +314,11 @@ export function InspectorDrawer({
                   className="w-full font-mono text-xs"
                   onClick={addSchedule}
                 >
-                  添加任务
+                  {t("inspector.addJob")}
                 </Button>
                 <Separator className="bg-border/40" />
                 <Field>
-                  <FieldLabel>移除任务 ID</FieldLabel>
+                  <FieldLabel>{t("inspector.removeJobId")}</FieldLabel>
                   <FieldContent>
                     <Input
                       value={schedRemoveId}
@@ -343,15 +333,15 @@ export function InspectorDrawer({
                   className="w-full font-mono text-xs"
                   onClick={removeSchedule}
                 >
-                  移除
+                  {t("inspector.remove")}
                 </Button>
                 <Separator className="bg-border/40" />
                 <p className="font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
-                  已缓存列表
+                  {t("inspector.cachedList")}
                 </p>
                 {scheduleJobs.length === 0 ? (
                   <p className="text-[11px] text-muted-foreground">
-                    点击转播区「Cron」或添加任务后更新。
+                    {t("inspector.scheduleEmptyHint")}
                   </p>
                 ) : (
                   <ScrollArea className="max-h-48">
@@ -392,11 +382,7 @@ export function InspectorDrawer({
             >
               {mcpServers.length === 0 ? (
                 <p className="text-[11px] leading-relaxed text-muted-foreground">
-                  尚无缓存。在转播区点「MCP」向内核请求{" "}
-                  <code className="font-mono text-[10px]">
-                    RefreshMcpTools
-                  </code>
-                  。
+                  {t("inspector.mcpEmpty")}
                 </p>
               ) : (
                 <Accordion multiple className="w-full">
@@ -436,11 +422,13 @@ export function InspectorDrawer({
             >
               <FieldGroup className="gap-4">
                 <Field>
-                  <FieldTitle className="text-primary/90">委派</FieldTitle>
-                  <FieldDescription>目标 agent 与指令</FieldDescription>
+                  <FieldTitle className="text-primary/90">
+                    {t("inspector.delegateTitle")}
+                  </FieldTitle>
+                  <FieldDescription>{t("inspector.delegateDesc")}</FieldDescription>
                 </Field>
                 <Field>
-                  <FieldLabel>Agent ID</FieldLabel>
+                  <FieldLabel>{t("inspector.agentId")}</FieldLabel>
                   <FieldContent>
                     <Input
                       value={delTarget}
@@ -450,7 +438,7 @@ export function InspectorDrawer({
                   </FieldContent>
                 </Field>
                 <Field>
-                  <FieldLabel>指令</FieldLabel>
+                  <FieldLabel>{t("inspector.instruction")}</FieldLabel>
                   <FieldContent>
                     <Textarea
                       value={delInstr}
@@ -466,13 +454,15 @@ export function InspectorDrawer({
                   onClick={runDelegate}
                   className="w-full font-mono text-xs"
                 >
-                  提交委派
+                  {t("inspector.submitDelegate")}
                 </Button>
                 <Separator className="bg-border/40" />
                 <Field>
-                  <FieldTitle className="text-primary/90">Swarm</FieldTitle>
+                  <FieldTitle className="text-primary/90">
+                    {t("inspector.swarmTitle")}
+                  </FieldTitle>
                   <FieldDescription>
-                    每行 <code className="text-[10px]">label: 指令</code>
+                    {t("inspector.swarmDesc")}
                   </FieldDescription>
                 </Field>
                 <Textarea
@@ -487,7 +477,7 @@ export function InspectorDrawer({
                   onClick={runSwarm}
                   className="w-full font-mono text-xs"
                 >
-                  运行 Swarm
+                  {t("inspector.runSwarm")}
                 </Button>
               </FieldGroup>
             </TabsContent>
@@ -498,14 +488,10 @@ export function InspectorDrawer({
             >
               <FieldGroup className="gap-4">
                 <Field>
-                  <FieldTitle className="text-primary/90">健康检查</FieldTitle>
-                  <FieldDescription>
-                    对标 OpenClaw <code className="text-[10px]">doctor</code>
-                    ：配置、Provider、数据目录、MCP。CLI：{" "}
-                    <code className="font-mono text-[10px]">
-                      z-claw-cli doctor
-                    </code>
-                  </FieldDescription>
+                  <FieldTitle className="text-primary/90">
+                    {t("inspector.healthTitle")}
+                  </FieldTitle>
+                  <FieldDescription>{t("inspector.healthDesc")}</FieldDescription>
                 </Field>
                 <Button
                   size="sm"
@@ -514,7 +500,7 @@ export function InspectorDrawer({
                   onClick={onRunHealthCheck}
                 >
                   <Stethoscope className="mr-1 size-3.5" />
-                  运行自检
+                  {t("inspector.runHealth")}
                 </Button>
                 {healthReport && (
                   <div className="rounded-md border border-border/40 bg-muted/15 p-3">
@@ -547,17 +533,12 @@ export function InspectorDrawer({
                 )}
                 <Separator className="bg-border/40" />
                 <Field>
-                  <FieldTitle>策略拦截</FieldTitle>
-                  <FieldDescription>
-                    最近记录；完整说明见{" "}
-                    <code className="font-mono text-[10px]">
-                      docs/policy-and-audit.md
-                    </code>
-                  </FieldDescription>
+                  <FieldTitle>{t("inspector.policyTitle")}</FieldTitle>
+                  <FieldDescription>{t("inspector.policyDesc")}</FieldDescription>
                 </Field>
                 {policyTrail.length === 0 ? (
                   <p className="text-[11px] text-muted-foreground">
-                    尚无 PolicyBlocked 事件。
+                    {t("inspector.policyEmpty")}
                   </p>
                 ) : (
                   <ScrollArea className="max-h-36">
@@ -584,14 +565,12 @@ export function InspectorDrawer({
                 )}
                 <Separator className="bg-border/40" />
                 <Field>
-                  <FieldTitle>审计</FieldTitle>
-                  <FieldDescription>
-                    工具允许/策略与调度相关审计行（内核环形缓冲刷出）。
-                  </FieldDescription>
+                  <FieldTitle>{t("inspector.auditTitle")}</FieldTitle>
+                  <FieldDescription>{t("inspector.auditDesc")}</FieldDescription>
                 </Field>
                 {auditTrail.length === 0 ? (
                   <p className="text-[11px] text-muted-foreground">
-                    等待 AuditEntry 事件…
+                    {t("inspector.auditEmpty")}
                   </p>
                 ) : (
                   <ScrollArea className="max-h-40">
