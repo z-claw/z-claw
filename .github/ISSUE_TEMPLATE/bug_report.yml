@@ -1,0 +1,139 @@
+name: Bug Report
+description: Report a reproducible defect in z-claw
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug.
+        Please provide a minimal reproducible case so maintainers can triage quickly.
+        Do not include personal/sensitive data; redact and anonymize all logs/payloads.
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Affected component
+      options:
+        - desktop_ui (apps/desktop)
+        - tauri_bridge (src-tauri)
+        - kernel (crates/z-claw-kernel)
+        - packages_ui (packages/ui)
+        - cli_headless (crates/z-claw-cli)
+        - i18n_locales (src-tauri/resources/locales)
+        - openspec (openspec/)
+        - ci_tooling (.github / root tooling)
+        - unknown
+    validations:
+      required: true
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - S0 - data loss / security risk
+        - S1 - workflow blocked
+        - S2 - degraded behavior
+        - S3 - minor issue
+    validations:
+      required: true
+
+  - type: textarea
+    id: current
+    attributes:
+      label: Current behavior
+      description: What is happening now?
+      placeholder: The window freezes after ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should happen instead?
+      placeholder: The app should ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Exact steps; for full UI use the Tauri app (not browser-only dev). For headless kernel issues, mention z-claw-cli if relevant.
+      placeholder: |
+        1. pnpm tauri dev (from repo root) or installed app version ...
+        2. Open Settings → ...
+        3. Observe ...
+      render: bash
+    validations:
+      required: true
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact
+      description: Who is affected, how often, and practical consequences (optional but helps triage).
+      placeholder: |
+        Affected users: ...
+        Frequency: always/intermittent
+        Consequence: ...
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / stack traces
+      description: Paste relevant logs (redact secrets, personal identifiers, and sensitive data).
+      render: text
+    validations:
+      required: false
+
+  - type: input
+    id: version
+    attributes:
+      label: z-claw version
+      placeholder: 0.1.0 / commit SHA
+    validations:
+      required: true
+
+  - type: input
+    id: rust
+    attributes:
+      label: Rust version
+      description: Required for build/kernel/cli bugs; optional for pure UI/docs issues.
+      placeholder: rustc 1.xx.x
+    validations:
+      required: false
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: Ubuntu 24.04 / macOS 15 / Windows 11
+    validations:
+      required: true
+
+  - type: dropdown
+    id: regression
+    attributes:
+      label: Regression?
+      options:
+        - Unknown
+        - Yes, it worked before
+        - No, first-time setup
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-flight checks
+      options:
+        - label: I reproduced this on the latest main branch or latest release.
+          required: true
+        - label: I redacted secrets, tokens, and personal data from all submitted content.
+          required: true

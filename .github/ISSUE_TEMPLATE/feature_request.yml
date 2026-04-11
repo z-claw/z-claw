@@ -1,0 +1,107 @@
+name: Feature Request
+description: Propose an improvement or new capability for z-claw
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for sharing your idea.
+        Please focus on user value, constraints, and rollout safety.
+        Do not include personal/sensitive data; use neutral project-scoped placeholders.
+
+  - type: input
+    id: summary
+    attributes:
+      label: Summary
+      description: One-line statement of the requested capability.
+      placeholder: e.g. Expose schedule list refresh in desktop after kernel confirms job added
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem statement
+      description: What user pain does this solve and why is current behavior insufficient?
+      placeholder: e.g. Delegating to another agent profile does not load MEMORY/IDENTITY as expected when ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe preferred behavior and interfaces (UI, kernel, or protocol).
+      placeholder: e.g. Extend UiCommand/KernelEvent in protocol.rs and mirror types in apps/desktop; add a setting toggle under ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: non_goals
+    attributes:
+      label: Non-goals / out of scope
+      description: Clarify what should not be included in the first iteration (optional but helps scope discussion).
+      placeholder: e.g. No change to provider routing in v1; desktop-only, no CLI parity.
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What alternatives did you evaluate?
+      placeholder: e.g. Workaround via editing workspace files; use headless z-claw-cli only; etc.
+    validations:
+      required: false
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: What outcomes would make this request complete? (optional — can be defined during triage)
+      placeholder: |
+        - Behavior documented in openspec or README where appropriate
+        - UI and kernel stay in sync for new messages
+        - Vitest or Rust tests cover the new path
+    validations:
+      required: false
+
+  - type: textarea
+    id: architecture
+    attributes:
+      label: Architecture impact
+      description: Which parts of the repo are affected? (optional — maintainers will assess during triage)
+      placeholder: e.g. apps/desktop (ChatPanel), src-tauri bridge, crates/z-claw-kernel (orchestrator), packages/ui, openspec/ ...
+    validations:
+      required: false
+
+  - type: textarea
+    id: risk
+    attributes:
+      label: Risk and rollback
+      description: Main risk + how to disable/revert quickly (optional — can be defined during planning).
+      placeholder: Risk is ... rollback is ...
+    validations:
+      required: false
+
+  - type: dropdown
+    id: breaking
+    attributes:
+      label: Breaking change?
+      options:
+        - "No"
+        - "Yes"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: hygiene
+    attributes:
+      label: Data hygiene checks
+      options:
+        - label: I removed personal/sensitive data from examples, payloads, and logs.
+          required: true
+        - label: I used neutral, project-focused wording and placeholders.
+          required: true

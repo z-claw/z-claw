@@ -1,6 +1,5 @@
 //! OpenAI-compatible HTTP client (`/chat/completions`, streaming SSE, `/models` health ping).
 //! 非流式、无 tools 的补全走 **aisdk** `OpenAICompatible`；主对话流式、工具调用与含 `tool_calls` 的多轮历史仍用 **reqwest**（aisdk 的 `Message` 无法表达单条 assistant 多 tool_calls，且流式 tool delta 不带 index）。
-//! 仅配置即可对接的厂商见仓库 `docs/adding-openai-compatible-provider.md`。
 
 use crate::error::{KernelError, Result};
 use crate::provider::{ChatProvider, ChatRequest, StreamChunk, ToolCallFragment, ToolDefinition};

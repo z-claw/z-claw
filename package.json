@@ -13,7 +13,8 @@
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
-    "openspec": "openspec"
+    "openspec": "openspec",
+    "sync-skills": "node scripts/sync_skills.mjs"
   },
   "packageManager": "pnpm@9.15.9",
   "engines": {
