@@ -121,6 +121,10 @@ impl PolicyEngine {
     pub fn max_swarm_tasks(&self) -> usize {
         self.cfg.read().max_swarm_tasks.max(1)
     }
+
+    pub fn require_tool_approval(&self) -> bool {
+        self.cfg.read().require_tool_approval
+    }
 }
 
 fn collect_path_strings(v: &serde_json::Value) -> Vec<String> {

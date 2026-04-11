@@ -7,6 +7,10 @@ export type TranscriptMsg = {
   text: string;
   /** 仅 assistant：流式进行中，遇 ToolCallStarted 或 MessageComplete 会置 false */
   streaming?: boolean;
+  /** 仅 role === "tool_call"：工具是否成功完成 */
+  toolOk?: boolean;
+  /** 仅 role === "tool_call"：工具是否仍在运行 */
+  toolRunning?: boolean;
 };
 
 export type SessionTranscript = Record<string, TranscriptMsg[]>;
@@ -45,18 +49,62 @@ export function reduceTranscriptFromKernel(
   const key = Object.keys(payload)[0];
 
   if (key === "ToolCallStarted") {
-    const v = payload.ToolCallStarted as { session_id?: string };
+    const v = payload.ToolCallStarted as {
+      session_id?: string;
+      tool_name?: string;
+    };
     const sid = v.session_id;
     if (!sid) return bySession;
     const list = bySession[sid] ?? [];
-    const last = list[list.length - 1];
-    if (last?.role === "assistant" && last.streaming) {
-      return {
-        ...bySession,
-        [sid]: [...list.slice(0, -1), { ...last, streaming: false }],
-      };
+    // Stop the streaming indicator on the last assistant message.
+    const updated = list.map((m, i) =>
+      i === list.length - 1 && m.role === "assistant" && m.streaming
+        ? { ...m, streaming: false }
+        : m,
+    );
+    return {
+      ...bySession,
+      [sid]: [
+        ...updated,
+        {
+          id: nid(),
+          sessionId: sid,
+          role: "tool_call",
+          text: v.tool_name ?? "tool",
+          toolRunning: true,
+          toolOk: false,
+        },
+      ],
+    };
+  }
+
+  if (key === "ToolCallFinished") {
+    const v = payload.ToolCallFinished as {
+      session_id?: string;
+      tool_name?: string;
+      ok?: boolean;
+      summary?: string;
+    };
+    const sid = v.session_id;
+    if (!sid) return bySession;
+    const list = bySession[sid] ?? [];
+    // Find the most recent running tool_call row that matches the tool name.
+    let lastIdx = -1;
+    for (let i = list.length - 1; i >= 0; i--) {
+      if (
+        list[i].role === "tool_call" &&
+        list[i].toolRunning &&
+        list[i].text === v.tool_name
+      ) {
+        lastIdx = i;
+        break;
+      }
     }
-    return bySession;
+    if (lastIdx === -1) return { ...bySession, [sid]: list };
+    const next = list.map((m, i) =>
+      i === lastIdx ? { ...m, toolRunning: false, toolOk: v.ok ?? true } : m,
+    );
+    return { ...bySession, [sid]: next };
   }
 
   if (key === "MessageDelta") {
@@ -156,3 +204,4 @@ export function replaceTranscriptFromHistory(
     })),
   };
 }
+
