@@ -374,6 +374,9 @@ export default function App() {
           const j = payload.ScheduleList as { jobs?: ScheduleJobRow[] };
           setScheduleJobs(j.jobs ?? []);
         }
+        if ("ScheduleJobAdded" in payload || "ScheduleJobRemoved" in payload) {
+          void send("ScheduleList");
+        }
         if ("MemoryRecalled" in payload) {
           const m = payload.MemoryRecalled as {
             session_id?: string;
