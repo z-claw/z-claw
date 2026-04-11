@@ -1,6 +1,7 @@
 //! Tauri 壳层：启动 `z-claw-kernel`，通过 `kernel_send` / `kernel-event` 与前端通信。
 
 use tauri::{AppHandle, Emitter, Manager};
+use tauri::path::BaseDirectory;
 use z_claw_kernel::protocol::UiCommand;
 use z_claw_kernel::{AppConfig, spawn_kernel};
 
@@ -16,6 +17,23 @@ fn kernel_send(bridge: tauri::State<KernelBridge>, cmd: UiCommand) -> Result<(),
         .cmd_tx
         .send(cmd)
         .map_err(|_| "内核通道已关闭".to_string())
+}
+
+/// 读取打包在 `bundle.resources` 下的 `locales/{lang}.json`，供前端 i18n 异步加载。
+#[tauri::command]
+fn read_locale_file(app: AppHandle, lang: String) -> Result<String, String> {
+    if lang != "zh" && lang != "en" {
+        return Err(format!("unsupported locale: {lang}"));
+    }
+    // 须与 `tauri.conf.json > bundle.resources` 中的相对路径一致（见 resources/locales/*.json）
+    let path = app
+        .path()
+        .resolve(
+            format!("resources/locales/{lang}.json"),
+            BaseDirectory::Resource,
+        )
+        .map_err(|e| e.to_string())?;
+    std::fs::read_to_string(&path).map_err(|e| e.to_string())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -59,7 +77,7 @@ pub fn run() {
             app.manage(KernelBridge { cmd_tx });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![kernel_send])
+        .invoke_handler(tauri::generate_handler![kernel_send, read_locale_file])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type Event, type UnlistenFn } from "@tauri-apps/api/event";
 import { CalendarClock, FileDown, MessageSquare, Network, Send, Stethoscope, Trash2 } from "lucide-react";
@@ -73,6 +74,7 @@ function newId(): string {
 }
 
 export default function App() {
+  const { t } = useTranslation();
   const uiPrefs0 = useMemo(() => loadUiPrefs(), []);
   const [log, setLog] = useState<LogEntry[]>([]);
   const [sessions, setSessions] = useState<SessionRow[]>([]);
@@ -87,8 +89,8 @@ export default function App() {
   const [schedRemoveId, setSchedRemoveId] = useState("");
   const [delTarget, setDelTarget] = useState("");
   const [delInstr, setDelInstr] = useState("");
-  const [swarmText, setSwarmText] = useState(
-    "research: 调研主题\nwrite: 写一段摘要",
+  const [swarmText, setSwarmText] = useState(() =>
+    t("app.defaultSwarmText"),
   );
   const [transcripts, setTranscripts] = useState<SessionTranscript>({});
   const [mcpServers, setMcpServers] = useState<McpServerRow[]>([]);
@@ -138,7 +140,7 @@ export default function App() {
       await invoke("kernel_send", { cmd });
     } catch (err) {
       const msg = String(err);
-      toast.error("指令未送达内核", { description: msg });
+      toast.error(t("toast.commandFailed"), { description: msg });
       setLog((prev) => [
         ...prev,
         {
@@ -153,7 +155,7 @@ export default function App() {
         },
       ]);
     }
-  }, []);
+  }, [t]);
 
   const loadSessionHistory = useCallback(
     (sid: string) => {
@@ -247,8 +249,8 @@ export default function App() {
         }
         if ("Error" in payload) {
           const err = payload.Error as { message?: string };
-          const msg = err.message ?? "未知错误";
-          toast.error("内核错误", { description: msg });
+          const msg = err.message ?? t("toast.unknownError");
+          toast.error(t("toast.kernelError"), { description: msg });
         }
         if ("SessionCreated" in payload) {
           const sc = payload.SessionCreated as { id: string };
@@ -350,14 +352,14 @@ export default function App() {
           const rid = v.client_request_id ?? 0;
           if (rid === profileLoadReqIdRef.current) {
             setAgentProfileLoading(false);
-            toast.error("无法加载档案", {
-              description: v.message ?? "未知错误",
+            toast.error(t("toast.profileLoadFailed"), {
+              description: v.message ?? t("toast.unknownError"),
             });
           }
         }
         if ("AgentProfileSaved" in payload) {
           const v = payload.AgentProfileSaved as { agent_id?: string };
-          toast.success("档案已保存", {
+          toast.success(t("toast.profileSaved"), {
             description: v.agent_id ?? "",
           });
         }
@@ -393,12 +395,12 @@ export default function App() {
             removed?: boolean;
           };
           if (m.removed === true) {
-            toast.success("已遗忘知识条目", {
+            toast.success(t("toast.memoryForgotten"), {
               description: m.entry_id ?? "",
             });
           } else {
-            toast.message("未找到可遗忘条目", {
-              description: m.entry_id ?? "请检查 ID 或条目已删除",
+            toast.message(t("toast.memoryForgetNotFound"), {
+              description: m.entry_id ?? t("toast.memoryForgetHint"),
             });
           }
         }
@@ -412,7 +414,7 @@ export default function App() {
               | undefined;
             const reloadErr = rt?.config_reload_error;
             if (typeof reloadErr === "string" && reloadErr.length > 0) {
-              toast.error("配置热重载失败（仍显示上一份可用配置）", {
+              toast.error(t("toast.configReloadFailed"), {
                 description: reloadErr,
               });
             }
@@ -482,7 +484,7 @@ export default function App() {
     return () => {
       void unlisten?.();
     };
-  }, []);
+  }, [t, send]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -584,9 +586,9 @@ export default function App() {
     if (!sessionId) return;
     try {
       await navigator.clipboard.writeText(sessionId);
-      toast.success("已复制会话 ID");
+      toast.success(t("toast.sessionIdCopied"));
     } catch {
-      toast.error("复制失败");
+      toast.error(t("toast.copyFailed"));
     }
   };
 
@@ -594,15 +596,15 @@ export default function App() {
 
   const exportTranscriptMd = () => {
     if (!sessionId || linesForSession.length === 0) {
-      toast.message("无可导出内容", {
-        description: "先选会话并在「对话」里产生消息。",
+      toast.message(t("toast.nothingToExport"), {
+        description: t("toast.exportHint"),
       });
       return;
     }
     const md = transcriptToMarkdown(sessionId, linesForSession);
     const short = sessionId.replace(/-/g, "").slice(0, 8);
     downloadTextFile(`z-claw-${short}-${Date.now()}.md`, md);
-    toast.success("已下载 Markdown");
+    toast.success(t("toast.markdownDownloaded"));
   };
 
   const saveAgentProfile = () => {
@@ -618,16 +620,18 @@ export default function App() {
 
   const copyConfigJson = async () => {
     if (configSnapshot == null) {
-      toast.error("尚无快照", { description: "请先打开设置并等待刷新。" });
+      toast.error(t("toast.noSnapshot"), {
+        description: t("toast.openSettingsForSnapshot"),
+      });
       return;
     }
     try {
       await navigator.clipboard.writeText(
         JSON.stringify(configSnapshot, null, 2),
       );
-      toast.success("已复制 JSON");
+      toast.success(t("toast.jsonCopied"));
     } catch {
-      toast.error("复制失败");
+      toast.error(t("toast.copyFailed"));
     }
   };
 
@@ -667,10 +671,10 @@ export default function App() {
                 <span className="flex size-7 items-center justify-center rounded-md bg-primary/12 text-primary">
                   <MessageSquare className="size-4" />
                 </span>
-                转播台
+                {t("broadcast.title")}
               </CardTitle>
               <CardDescription className="text-[11px] leading-relaxed text-muted-foreground/90">
-                对话视图按会话拼接消息；事件视图为内核完整事件流，可展开 JSON。
+                {t("broadcast.description")}
               </CardDescription>
             </CardHeader>
             <CardContent className="flex min-h-0 flex-1 flex-col gap-0 overflow-hidden px-0 pb-3">
@@ -692,13 +696,13 @@ export default function App() {
                       value="chat"
                       className="rounded-md px-3 text-xs"
                     >
-                      对话
+                      {t("feed.chat")}
                     </TabsTrigger>
                     <TabsTrigger
                       value="log"
                       className="rounded-md px-3 text-xs"
                     >
-                      事件
+                      {t("feed.events")}
                     </TabsTrigger>
                   </TabsList>
                   {feedTab === "log" ? (
@@ -711,11 +715,13 @@ export default function App() {
                       onClick={() => setLog([])}
                     >
                       <Trash2 className="mr-1 size-3" />
-                      清空
+                      {t("feed.clear")}
                     </Button>
                   ) : (
                     <span className="rounded-md bg-muted/35 px-2 py-1 font-mono text-[10px] text-muted-foreground">
-                      {sessionId ? `${linesForSession.length} 条` : "未选会话"}
+                      {sessionId
+                        ? t("feed.lineCount", { count: linesForSession.length })
+                        : t("feed.noSession")}
                     </span>
                   )}
                 </div>
@@ -743,7 +749,7 @@ export default function App() {
               <div className="shrink-0 space-y-2.5 rounded-b-[inherit] border-t border-border/25 bg-muted/12 px-4 py-3 sm:px-5">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-[11px] font-medium text-muted-foreground">
-                    撰写
+                    {t("composer.section")}
                   </span>
                   <div className="flex flex-wrap gap-1.5">
                     <Button
@@ -769,7 +775,7 @@ export default function App() {
                       variant="outline"
                       className="h-8 gap-1.5 text-xs"
                       onClick={() => void send("RunHealthCheck")}
-                      title="健康检查"
+                      title={t("composer.healthTitle")}
                     >
                       <Stethoscope className="size-3.5" />
                     </Button>
@@ -778,8 +784,8 @@ export default function App() {
                 <Textarea
                   placeholder={
                     sessionId
-                      ? "Enter 发送 · Shift+Enter 换行"
-                      : "先创建或选择一个会话"
+                      ? t("composer.placeholderReady")
+                      : t("composer.placeholderNoSession")
                   }
                   value={messageDraft}
                   disabled={!sessionId}
@@ -801,7 +807,7 @@ export default function App() {
                     className="gap-2 text-xs"
                   >
                     <FileDown className="size-3.5" />
-                    导出对话
+                    {t("composer.exportMd")}
                   </Button>
                   <Button
                     size="sm"
@@ -810,7 +816,7 @@ export default function App() {
                     className="gap-2 shadow-sm"
                   >
                     <Send className="size-3.5" />
-                    发送
+                    {t("composer.send")}
                   </Button>
                 </div>
               </div>
@@ -890,20 +896,21 @@ export default function App() {
       >
         <AlertDialogContent size="sm">
           <AlertDialogHeader>
-            <AlertDialogTitle>删除会话？</AlertDialogTitle>
+            <AlertDialogTitle>{t("deleteSession.title")}</AlertDialogTitle>
             <AlertDialogDescription>
-              将永久删除该会话在本地 SQLite
-              中的消息与片段记录，且不可恢复。确定要继续吗？
+              {t("deleteSession.description")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel type="button">取消</AlertDialogCancel>
+            <AlertDialogCancel type="button">
+              {t("deleteSession.cancel")}
+            </AlertDialogCancel>
             <AlertDialogAction
               type="button"
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={() => confirmDeleteSession()}
             >
-              删除
+              {t("deleteSession.confirm")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -920,9 +927,11 @@ export default function App() {
       >
         <AlertDialogContent className="sm:max-w-md">
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-warning text-yellow-500">敏感动作执行确认 (Sandbox)</AlertDialogTitle>
+            <AlertDialogTitle className="text-warning text-yellow-500">
+              {t("sandbox.title")}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              当前 Agent 尝试执行系统级操作。请检查工具和参数：
+              {t("sandbox.description")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="bg-muted p-3 rounded-md overflow-hidden text-xs font-mono text-muted-foreground break-all max-h-48 overflow-y-auto">
@@ -938,7 +947,7 @@ export default function App() {
                 }
               }}
             >
-              拦截并拒绝
+              {t("sandbox.reject")}
             </AlertDialogCancel>
             <AlertDialogAction
               className="bg-yellow-600 text-white hover:bg-yellow-700"
@@ -949,7 +958,7 @@ export default function App() {
                 }
               }}
             >
-              授权执行
+              {t("sandbox.approve")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

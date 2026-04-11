@@ -4,7 +4,7 @@
 
 ## 仓库结构
 
-- `apps/desktop`：Tauri 2 + Vite + React 桌面壳，经 `kernel_send` 与内核通信
+- `apps/desktop`：Tauri 2 + Vite + React 桌面壳，经 `kernel_send` 与内核通信；`pnpm locales` 将 `src-tauri/resources/locales` 同步到 `public/locales` 供纯 Vite 开发时 `fetch`
 - `crates/z-claw-kernel`：Rust 内核（会话、工具、工作区智能体档案等）
 - `packages/ui`：共享 UI（shadcn 风格组件）
 - `openspec/`：OpenSpec 规格；项目级上下文见 `[openspec/config.yaml](openspec/config.yaml)`
@@ -26,7 +26,7 @@
 | 会话检索 / 跨会话搜索 | #7 | 未落地 | 内核与桌面暂无检索 API / UI |
 | 桌面单元 / E2E 测试 | #8 | 部分 | `apps/desktop` 已配置 `pnpm test`（Vitest）与 `src/lib/transcript.test.ts`；E2E 未接 |
 | 对话区结构化展示 | #9 | 部分 | `ChatPanel` 仍以纯文本时间线为主；工具/Swarm 细节见事件流 |
-| 国际化 | #10 | 未落地 | 无 i18n 框架，界面为中文文案 |
+| 国际化 | #10 | 已落地 | 词条在 `src-tauri/resources/locales`（`bundle.resources`），`read_locale_file` 加载；设置中可切换中/英 |
 | OpenSpec 项目上下文 | #11 | 已落地 | `openspec/config.yaml` 含 `context` 与 `rules` |
 
 定时任务：添加/删除任务后，桌面端在收到 `ScheduleJobAdded` / `ScheduleJobRemoved` 时会自动请求 `ScheduleList` 刷新列表（见 `App.tsx` 内核对接逻辑）。

@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { ChevronDown, Radio } from "lucide-react";
 import { Badge } from "@workspace/ui/components/badge";
 import {
@@ -33,6 +34,7 @@ function toneBadgeClass(tone: string): string {
 }
 
 export function EventLogPanel({ log, bottomRef }: EventLogPanelProps) {
+  const { t } = useTranslation();
   return (
     <ScrollArea className="min-h-0 flex-1 px-4 sm:px-5">
       <div className="space-y-2 pr-4 pb-2">
@@ -42,10 +44,8 @@ export function EventLogPanel({ log, bottomRef }: EventLogPanelProps) {
               <EmptyMedia variant="icon">
                 <Radio className="size-5 text-primary/70" />
               </EmptyMedia>
-              <EmptyTitle>等待 kernel-event</EmptyTitle>
-              <EmptyDescription>
-                Ready、工具调用、策略拦截等会出现在此列表。
-              </EmptyDescription>
+              <EmptyTitle>{t("eventLog.empty")}</EmptyTitle>
+              <EmptyDescription>{t("eventLog.emptyDescription")}</EmptyDescription>
             </EmptyHeader>
           </Empty>
         ) : (
@@ -74,7 +74,7 @@ export function EventLogPanel({ log, bottomRef }: EventLogPanelProps) {
               <Collapsible className="mt-2">
                 <CollapsibleTrigger className="flex items-center gap-1 font-mono text-[10px] text-muted-foreground hover:text-foreground">
                   <ChevronDown className="size-3" />
-                  原始 JSON
+                  {t("eventLog.rawJson")}
                 </CollapsibleTrigger>
                 <CollapsibleContent>
                   <pre className="mt-2 max-h-48 overflow-auto rounded-md border border-border/30 bg-muted/30 p-2 font-mono text-[10px] leading-relaxed">
