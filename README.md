@@ -1,33 +1,84 @@
 # z-claw
 
-本地 AI Agent 桌面应用
+*中文：[README.zh.md](README.zh.md)*
 
-## 仓库结构
+**z-claw** is a local-first AI agent desktop app: a **Tauri 2** shell (`src-tauri`) hosts a **React** UI (`apps/desktop`) that talks to a **Rust kernel** (`crates/z-claw-kernel`) over a typed command/event protocol. Sessions, tools (including MCP), memory, scheduling, multi-agent workflows, and workspace agent profiles all run in the kernel; the UI sends `UiCommand` and listens for `KernelEvent`.
 
-- `apps/desktop`：Tauri 2 + Vite + React 桌面壳，经 `kernel_send` 与内核通信；界面词条由 Tauri 从 `src-tauri/resources/locales`（`bundle.resources`）加载，勿单独用浏览器打开 `pnpm dev` 调试完整 UI
-- `crates/z-claw-kernel`：Rust 内核（会话、工具、工作区智能体档案等）
-- `packages/ui`：共享 UI（shadcn 风格组件）
-- `openspec/`：OpenSpec 规格；项目级上下文见 `[openspec/config.yaml](openspec/config.yaml)`
-- `.skills/`：各 AI 工具链共用的 Agent Skills（`openspec-*`、`github-*` 等）；修改后执行根目录 `pnpm sync-skills` 同步到 `.agent`、`.claude`、`.codex`、`.cursor`、`.opencode`、`.trae` 下的 `skills/`（这些目录内除 `.gitignore` 外不纳入 Git，避免重复）
+## Features (high level)
+
+- **Chat & sessions** — Create/rename/delete sessions, load history, stream assistant output and tool traces.
+- **Agents** — Workspace-scoped agent folders (`IDENTITY.md` / `MEMORY.md`), list/set active agent, in-app profile load/save, delegate to another profile.
+- **Tools & MCP** — MCP tool pool; refresh catalog; tool approval flow when policy requires it.
+- **Automation** — Cron-style scheduled jobs (policy-validated) with list/add/remove.
+- **Health** — `RunHealthCheck` / CLI `doctor` for config, data dir, providers, MCP.
+- **i18n** — UI strings bundled under `src-tauri/resources/locales` and loaded via Tauri (`read_locale_file`); zh/en switch in settings.
+
+## Repository layout
+
+| Path | Role |
+| ---- | ---- |
+| [`apps/desktop`](apps/desktop) | Vite + React 19 + TypeScript UI. Consumes **`@workspace/ui`**. Dev server default: `http://localhost:1420` (used by Tauri). |
+| [`packages/ui`](packages/ui) | Shared UI kit (shadcn-style primitives, Tailwind). Exported as `@workspace/ui`. |
+| [`src-tauri`](src-tauri) | Tauri 2 crate **`z-claw`**: windowing, `kernel_send` / `kernel-event` bridge, `read_locale_file`, bundles `apps/desktop/dist`. |
+| [`crates/z-claw-kernel`](crates/z-claw-kernel) | Core logic: orchestration, providers, MCP, memory, scheduler, policy, workspace agents, SQLite transcript, protocol types. |
+| [`crates/z-claw-cli`](crates/z-claw-cli) | Headless **`z-claw-cli`**: run kernel with events on stderr (CI/scripts); **`z-claw-cli doctor`** for one-shot health checks. |
+| [`openspec/`](openspec) | OpenSpec artifacts; project context and AI rules in [`openspec/config.yaml`](openspec/config.yaml). |
+| [`.skills/`](.skills) | Authoritative agent skill sources (`openspec-*`, `github-*`, …). Run **`pnpm sync-skills`** to copy into tool-specific `skills/` dirs (mostly gitignored). |
+
+Protocol source of truth: [`crates/z-claw-kernel/src/protocol.rs`](crates/z-claw-kernel/src/protocol.rs) (`UiCommand`, `KernelEvent`). Extend desktop and kernel types together when changing the contract.
+
+## Requirements
+
+- **Node.js** ≥ 20, **pnpm** 9 (`packageManager` in root `package.json`)
+- **Rust** stable (2024 edition workspace) for `cargo` / Tauri / CLI
+
+Linux desktop builds need WebKit/GTK dev packages (see [`.github/workflows/ci.yml`](.github/workflows/ci.yml) for the apt list used in CI).
+
+## Quick start
+
+```bash
+pnpm install
+pnpm tauri dev    # builds desktop + runs Vite + opens the app
+```
+
+Root scripts wrap the desktop package:
+
+| Script | Description |
+| ------ | ----------- |
+| `pnpm dev` | `z-claw-desktop` Vite dev server |
+| `pnpm build` | `tsc` + Vite production build (also used as Tauri `beforeBuildCommand`) |
+| `pnpm typecheck` / `pnpm test` | All workspaces that define these scripts |
+| `pnpm tauri build` | Production desktop bundle (platform installers per Tauri) |
+| `pnpm sync-skills` | Sync `.skills/` into local agent tool directories |
+
+Rust (from repo root):
+
+```bash
+cargo build -p z-claw-cli
+cargo run -p z-claw-cli -- doctor   # health check, no full kernel loop
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+```
+
+## CI and releases
+
+- **CI** ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)): on `push` to `main` and on PRs — `pnpm install`, `pnpm typecheck`, `pnpm test`, then `cargo clippy` and `cargo test` on Ubuntu with Tauri Linux deps installed.
+- **Releases** ([`.github/workflows/release.yml`](.github/workflows/release.yml)): pushing a SemVer tag `v*` builds Tauri artifacts for multiple platforms and publishes GitHub Release assets.
+
+## Contributing
+
+See **[CONTRIBUTING.md](CONTRIBUTING.md)** (merge target: **`main`** on `z-claw/z-claw`). PR bodies should follow [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md).
 
 ## OpenSpec
 
-生成提案与任务时，AI 应读取 `openspec/config.yaml` 中的 `context` 与 `rules`，并与本 README 的目录约定保持一致。
+When writing proposals or tasks, follow `context` and `rules` in [`openspec/config.yaml`](openspec/config.yaml) and keep them consistent with this README.
 
-## Roadmap Issue 与实现核对
+## Star History
 
-以下对应 `z-claw/z-claw` 中历史 Roadmap Issue（#3–#11），便于人工与 CI 对照；**以代码为准**，若与 Issue 标题不一致请以本节为准。
-
-| 主题 | Issue | 实现状态 | 说明 |
-|------|-------|----------|------|
-| 应用内编辑智能体档案 | #3 | 已落地 | `AgentProfileSheet`、`LoadAgentProfile` / `SaveAgentProfile`（内核 `workspace.rs`） |
-| Delegate 载入目标人格 | #4 | 已落地 | `orchestrator/delegate.rs` 中 `load_agent_profile(target)` 注入 IDENTITY/MEMORY |
-| CreateAgentProfile 错误可见 | #5 | 已落地 | `orchestrator.rs` 失败分支发送 `KernelEvent::Error` |
-| 配置可视化 | #6 | 部分 | 设置中为结构化只读 + 路径提示（`SettingsDrawer`、`config-snapshot-view`）；写回仍依赖编辑磁盘 `config.json` |
-| 会话检索 / 跨会话搜索 | #7 | 未落地 | 内核与桌面暂无检索 API / UI |
-| 桌面单元 / E2E 测试 | #8 | 部分 | `apps/desktop` 已配置 `pnpm test`（Vitest）与 `src/lib/transcript.test.ts`；E2E 未接 |
-| 对话区结构化展示 | #9 | 部分 | `ChatPanel` 仍以纯文本时间线为主；工具/Swarm 细节见事件流 |
-| 国际化 | #10 | 已落地 | 词条在 `src-tauri/resources/locales`（`bundle.resources`），`read_locale_file` 加载；设置中可切换中/英 |
-| OpenSpec 项目上下文 | #11 | 已落地 | `openspec/config.yaml` 含 `context` 与 `rules` |
-
-定时任务：添加/删除任务后，桌面端在收到 `ScheduleJobAdded` / `ScheduleJobRemoved` 时会自动请求 `ScheduleList` 刷新列表（见 `App.tsx` 内核对接逻辑）。
+<a href="https://www.star-history.com/?repos=z-claw%2Fz-claw&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=z-claw/z-claw&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=z-claw/z-claw&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=z-claw/z-claw&type=date&legend=top-left" />
+ </picture>
+</a>

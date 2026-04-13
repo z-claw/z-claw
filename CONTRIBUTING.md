@@ -1,28 +1,30 @@
-# 参与贡献
+# Contributing
 
-本文说明如何向 **本仓库**（`z-claw/z-claw`）提交改动。合并目标、CI、Issue 与 Roadmap 均以 **`main` 分支** 为准。
+*中文：[CONTRIBUTING.zh.md](CONTRIBUTING.zh.md)*
 
-## Pull Request
+This document describes how to contribute to **this repository** (`z-claw/z-claw`). Integration branch, CI, issues, and the roadmap all use **`main`** as the source of truth.
 
-- 请向 **`main`** 打开 Pull Request（本仓库为默认 base）。
-- PR 正文请遵循 [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md)。
+## Pull requests
 
-## 本地开发与检查
+- Open pull requests against **`main`** (default base for this repo).
+- Use [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md) for the PR body.
 
-提交前建议在本地运行与 CI 一致的检查（详见模板中的命令列表），例如 `pnpm typecheck`、`pnpm test`、`cargo clippy`、`cargo test` 等。
+## Local development and checks
 
-## 通过 fork 参与时
+Before submitting, run the same checks as CI where practical (see the template for the command list), e.g. `pnpm typecheck`, `pnpm test`, `cargo clippy`, `cargo test`.
 
-若你**没有**本仓库的直接写权限，需先 fork，在 fork 上开发后再向 **本仓库的 `main`** 发起 PR：
+## Contributing via a fork
 
-1. 将功能分支推送到 **你的 fork**。
-2. 在 GitHub 上打开 **本仓库** → Pull requests → New pull request → **Compare across forks**：**base** 选 `z-claw/z-claw` 的 `main`，**compare** 选你 fork 上的分支。
+If you **do not** have push access here, fork the repo, work on a branch in your fork, then open a PR **into this repo’s `main`**:
 
-使用 GitHub CLI 时，将默认仓库设为本仓库，并显式指定 head 为你的 fork 分支（`你的用户名:分支名`），例如：
+1. Push your feature branch to **your fork**.
+2. On GitHub: open **this repository** → Pull requests → New pull request → **Compare across forks**: set **base** to `z-claw/z-claw` `main` and **compare** to your fork’s branch.
+
+With GitHub CLI, point the default repo here and pass **head** as your fork branch (`owner:branch`), for example:
 
 ```bash
 gh repo set-default z-claw/z-claw
-gh pr create --repo z-claw/z-claw --base main --head "$(gh api user --jq .login):<分支名>"
+gh pr create --repo z-claw/z-claw --base main --head "$(gh api user --jq .login):<branch>"
 ```
 
-已 `gh repo set-default z-claw/z-claw` 时，可省略 `--repo z-claw/z-claw`，但仍需提供 `--head <fork 拥有者>:<分支名>`，否则 CLI 会误认为分支在本仓库内。
+If you already ran `gh repo set-default z-claw/z-claw`, you may omit `--repo z-claw/z-claw`, but you still need `--head <fork-owner>:<branch>` so the CLI does not assume the branch exists on this repo.
