@@ -536,6 +536,7 @@ async fn execute_tool(
 
         // Capture the PGID before consuming `child` into the async block.
         // On Unix, PGID == PID when process_group(0) is used.
+        #[cfg(unix)]
         let pgid = child.id().map(|pid| pid as i32);
 
         // Take the pipe handles now; the async block owns them.
