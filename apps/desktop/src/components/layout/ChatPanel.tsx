@@ -30,9 +30,13 @@ function ToolCallRow({ msg }: { msg: TranscriptMsg }) {
       {msg.toolRunning ? (
         <Loader2 className="ml-auto size-3 animate-spin text-primary/60" />
       ) : msg.toolOk ? (
-        <CheckCircle2 className="ml-auto size-3 text-emerald-500/80" title={t("chat.toolCallFinished_ok")} />
+        <span className="ml-auto inline-flex" title={t("chat.toolCallFinished_ok")}>
+          <CheckCircle2 className="size-3 text-emerald-500/80" />
+        </span>
       ) : (
-        <XCircle className="ml-auto size-3 text-destructive/80" title={t("chat.toolCallFinished_err")} />
+        <span className="ml-auto inline-flex" title={t("chat.toolCallFinished_err")}>
+          <XCircle className="size-3 text-destructive/80" />
+        </span>
       )}
     </div>
   );

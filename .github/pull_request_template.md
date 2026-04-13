@@ -2,7 +2,7 @@
 
 Describe this PR in a few bullets:
 
-- Base branch: **`main`**
+- Base branch: `**main**`
 - Problem:
 - Why it matters:
 - What changed:
@@ -12,13 +12,13 @@ Describe this PR in a few bullets:
 
 If your fork uses GitHub labels, add them; otherwise tick areas touched:
 
-- [ ] `desktop` (`apps/desktop`)
-- [ ] `bridge` (`src-tauri`)
-- [ ] `kernel` (`crates/z-claw-kernel`)
-- [ ] `ui` (`packages/ui`)
-- [ ] `cli` (`crates/z-claw-cli`)
-- [ ] `openspec` (`openspec/`)
-- [ ] `ci` / tooling (`.github`, scripts)
+- `desktop` (`apps/desktop`)
+- `bridge` (`src-tauri`)
+- `kernel` (`crates/z-claw-kernel`)
+- `ui` (`packages/ui`)
+- `cli` (`crates/z-claw-cli`)
+- `openspec` (`openspec/`)
+- `ci` / tooling (`.github`, scripts)
 
 ## Change metadata
 
@@ -27,7 +27,7 @@ If your fork uses GitHub labels, add them; otherwise tick areas touched:
 
 ## Conventions
 
-- Follow the root **README.md** and **`openspec/config.yaml`** (project context and OpenSpec rules).
+- Follow the root **README.md** and `**openspec/config.yaml`** (project context and OpenSpec rules).
 
 ## Linked issues
 
@@ -37,7 +37,7 @@ If your fork uses GitHub labels, add them; otherwise tick areas touched:
 
 ## Validation evidence (required)
 
-Commands aligned with [`.github/workflows/ci.yml`](.github/workflows/ci.yml):
+Commands aligned with `[.github/workflows/ci.yml](.github/workflows/ci.yml)`:
 
 ```bash
 pnpm typecheck
@@ -72,7 +72,7 @@ pnpm lint
 ## User-visible strings / i18n
 
 - UI or user-facing text changed? (`Yes`/`No`)
-- If `Yes`, updated **`src-tauri/resources/locales/en.json`** and **`zh.json`**? (`Yes`/`No` / N.A.)
+- If `Yes`, updated `**src-tauri/resources/locales/en.json**` and `**zh.json**`? (`Yes`/`No` / N.A.)
 
 ## Compatibility / migration
 
@@ -111,3 +111,4 @@ List real risks in this PR, or write `None`.
 ## Co-authorship (optional)
 
 - `Co-authored-by:` trailers for substantive contributions from others (`Yes`/`No` / N.A.)
+
