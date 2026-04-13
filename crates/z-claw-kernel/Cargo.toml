@@ -12,7 +12,7 @@ chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"
 cron = "0.16"
 crossbeam-channel = "0.5"
-dirs = "5"
+dirs = "6"
 futures = "0.3"
 futures-util = "0.3"
 parking_lot = "0.12"
